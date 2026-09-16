@@ -82,14 +82,21 @@ jobs:
       # The registry, not the exit code, is the evidence that it landed.
       - run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          # 90 x 10s, and both numbers are measured. On 2026-09-16 the
+          # registry served contracts@1.0.6 two minutes after publish and
+          # sdk@3.0.3 ten minutes after -- both real releases, both with
+          # provenance already in the transparency log, and a twelve-lookup
+          # budget reported red on both. npm's own notice says "may take a
+          # few minutes"; fifteen covers the slower one with room to spare,
+          # and a hosted runner waiting is free on a public repository.
+          for attempt in $(seq 1 90); do
             seen=$(npm view "@fleetless/sdk@$VERSION" version 2>/dev/null || true)
             [ "$seen" = "$VERSION" ] && break
-            echo "npm does not report $VERSION yet (attempt $attempt of 12, saw '${seen:-nothing}'); waiting"
+            echo "npm does not report $VERSION yet (attempt $attempt of 90, saw '${seen:-nothing}'); waiting"
             sleep 10
           done
           if [ "$seen" != "$VERSION" ]; then
-            echo "FATAL: npm publish exited 0 but the registry does not serve @fleetless/sdk@$VERSION after 12 lookups over ~2 minutes." >&2
+            echo "FATAL: npm publish exited 0 but the registry does not serve @fleetless/sdk@$VERSION after 90 lookups over ~15 minutes." >&2
             echo "publish may have succeeded; do NOT retry this job (npm refuses to republish a version) — check \`npm view @fleetless/sdk@$VERSION\` by hand" >&2
             exit 1
           fi
