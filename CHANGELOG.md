@@ -4,6 +4,10 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [3.0.3] — 2026-09-16
+
+- Published from GitHub Actions by npm trusted publishing: no publish token exists anywhere, and every version from this one on carries a provenance attestation linking it to the commit and the run that built it. `npm audit signatures` checks it.
+
 - **The README is a lobby now, not the reference.** What Fleetless is, what this package does, one snippet, and links into docs.fleetless.dev; the seven walkthroughs it carried are the SDK reference's job. The four doc comments and the one runtime error message that sent a developer to a README section point at the SDK reference instead, and the test that resolved those pointers now refuses any new one.
 - `RELEASING.md` no longer ships in the package; the published `CONTRIBUTING.md` points at it without a link.
 - The prose guard treats a path into the company-site repository the way it treats every other sibling repository's path.

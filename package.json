@@ -1,7 +1,7 @@
 {
   "name": "@fleetless/sdk",
-  "version": "3.0.2",
-  "description": "The official TypeScript SDK for Fleetless client apps \u2014 a ROS 2 robot as a REST and realtime API, cameras, jobs, and the app's own user accounts, federated sign-in and MCP consent.",
+  "version": "3.0.3",
+  "description": "The official TypeScript SDK for Fleetless client apps — a ROS 2 robot as a REST and realtime API, cameras, jobs, and the app's own user accounts, federated sign-in and MCP consent.",
   "license": "MIT",
   "author": {
     "name": "Dehne Robotik GmbH",
