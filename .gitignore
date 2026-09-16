@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.npmrc
+# CI leftovers, also produced when the pipeline's commands are run by hand
+fleetless-sdk-*.tgz
+dist-tag.env

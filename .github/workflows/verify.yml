@@ -1,0 +1,114 @@
+# The suite on every push and every pull request, and the same file a release
+# calls: a release is never verified by a different pipeline than a push.
+#
+# Hosted runners, because this repository is public — a pull request is a
+# stranger's code, and hosted minutes are free here.
+name: verify
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history, not the action's default of one commit.
+          # `verify-commit-messages.mjs` is handed `before..sha` and checks
+          # that `before` resolves before using it. A depth-1 clone does not
+          # have that object, so the check does not fail — it falls through to
+          # `sha~1..sha`, which a depth-1 clone does not have either, and then
+          # to the tip alone: one commit read, exit 0, green. A guard that
+          # quietly narrows what it looked at is worse than one that breaks.
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          # v5 caches for the package manager named in package.json by
+          # default, and runs pnpm to work out the cache key — one step
+          # before corepack installs pnpm. Measured: "Unable to locate
+          # executable file: pnpm". v4, which this replaces, cached nothing
+          # unless asked; neither does this.
+          package-manager-cache: false
+      - run: corepack enable && corepack prepare pnpm@11.20.0 --activate
+      - run: pnpm install --frozen-lockfile
+      # First, and deliberately. On a tag run this is the cheapest check and
+      # the one guarding the release: a tag whose version disagrees with
+      # package.json fails in seconds, before the suite spends minutes
+      # agreeing with itself.
+      #
+      # It also writes `dist-tag.env`, which travels in the artifact and is
+      # the only thing telling the publish job whether this version goes out
+      # as `latest` or as `next`. On a branch run there is nothing to publish,
+      # so the file says so in a comment: `eval` of it leaves DIST_TAG unset,
+      # and publish refuses by name rather than guessing `latest`.
+      #
+      # `>`, never `| tee`: a pipe would hand this step the pipe's exit
+      # status instead of the check's.
+      #
+      # $GITHUB_REF_TYPE / $GITHUB_REF_NAME come from the runner's own
+      # environment rather than `${{ github.ref_name }}` interpolated into the
+      # script body, so a tag name can never be parsed as shell.
+      - name: version-tag check (tags only)
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            node scripts/verify-version-tag.mjs "$GITHUB_REF_NAME" > dist-tag.env
+          else
+            echo '# not a tag run: nothing to publish' > dist-tag.env
+          fi
+          cat dist-tag.env
+      # Which commits this run is about; the script checks their messages for
+      # anything internal. The variable names are historical — what the CI
+      # system this moved off called them — and the script still reads them.
+      #
+      # It takes `before..sha` only when `before` resolves, and lands
+      # somewhere different in each of the three cases:
+      #
+      # - **branch push** — `github.event.before` is the previous tip, so the
+      #   range is exactly what this push added.
+      # - **tag push** — `before` is all-zeros for a new ref, which the script
+      #   reads as "no before-sha". It falls back to `sha~1..sha`: the tagged
+      #   commit alone, because a tag names a commit and not a range.
+      # - **pull request** — the event carries no `before` at all, so the same
+      #   fallback applies, but `github.sha` here is GitHub's synthetic merge
+      #   commit. Its first parent is the base tip, so `sha~1..sha` is that
+      #   merge plus every commit the pull request proposes. Wider than the
+      #   tag case, and the right width: a fork's commits are exactly what
+      #   nobody has read yet.
+      #
+      # The script prints the range and the count it settled on, so a run that
+      # read one commit cannot look like a run that read twenty.
+      - run: pnpm run verify:commits
+        env:
+          CI_COMMIT_BEFORE_SHA: ${{ github.event.before }}
+          CI_COMMIT_SHA: ${{ github.sha }}
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm run test:pack
+      # The bytes a release publishes, packed here and never again. `npm pack`
+      # runs `prepare` (tsup) itself, so the tarball is built from this tree
+      # rather than from whatever `pnpm build` happened to leave behind — and
+      # the publish job uploads this file instead of rebuilding, so nothing
+      # can differ between what was checked and what ships.
+      - run: npm pack --pack-destination .
+      # How the tarball reaches publish: that job downloads this artifact. It
+      # never checks the repository out.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          # Fail here, where the pack did. Warning instead would send an empty
+          # artifact on to publish, which notices after the tag exists and
+          # blames a missing tarball rather than the step that failed to make
+          # one.
+          if-no-files-found: error
+          path: |
+            fleetless-sdk-*.tgz
+            dist-tag.env

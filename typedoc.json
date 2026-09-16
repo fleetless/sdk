@@ -1,0 +1,13 @@
+{
+  "entryPoints": ["src/index.ts"],
+  "tsconfig": "tsconfig.json",
+  "readme": "none",
+  "disableSources": true,
+  "excludeExternals": false,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "sort": ["source-order"],
+  "treatWarningsAsErrors": true,
+  "name": "@fleetless/sdk"
+}

@@ -1,0 +1,87 @@
+{
+  "name": "@fleetless/sdk",
+  "version": "3.0.2",
+  "description": "The official TypeScript SDK for Fleetless client apps \u2014 a ROS 2 robot as a REST and realtime API, cameras, jobs, and the app's own user accounts, federated sign-in and MCP consent.",
+  "license": "MIT",
+  "author": {
+    "name": "Dehne Robotik GmbH",
+    "email": "hello@fleetless.dev",
+    "url": "https://dehne-robotik.de"
+  },
+  "homepage": "https://docs.fleetless.dev/reference/sdk/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fleetless/sdk"
+  },
+  "bugs": {
+    "email": "hello@fleetless.dev"
+  },
+  "keywords": [
+    "fleetless",
+    "ros2",
+    "ros",
+    "robot",
+    "robotics",
+    "api",
+    "sdk",
+    "realtime",
+    "webrtc",
+    "mcp"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.20.0",
+  "scripts": {
+    "build": "tsup && node scripts/stamp-dist.mjs",
+    "prepare": "tsup && node scripts/stamp-dist.mjs",
+    "prepublishOnly": "node scripts/refuse-manual-publish.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:pack": "node scripts/verify-published-types.mjs",
+    "verify:live": "node scripts/verify-live.mjs",
+    "verify:history": "node scripts/verify-history.mjs",
+    "verify:commits": "node scripts/verify-commit-messages.mjs"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@fleetless/contracts": "1.0.5",
+    "@types/node": "^22.20.1",
+    "tsup": "^8.3.0",
+    "typedoc": "0.28.20",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "ws": "^8.21.3"
+  }
+}

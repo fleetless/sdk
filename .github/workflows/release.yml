@@ -1,0 +1,96 @@
+# A vX.Y.Z tag publishes to npm. The suite runs first, from verify.yml — the
+# same file every push runs — and the tarball it packed is the one published:
+# nothing is rebuilt between the check and the upload.
+#
+# **Trusted publishing.** There is no npm token: the job proves who it is
+# with a short-lived OIDC credential, and npm signs a provenance statement
+# linking this version to this commit and this run — shown on the package
+# page, checked by `npm audit signatures`. It needs `id-token: write`,
+# npm >= 11.5.1, node >= 22.14 and a cloud-hosted runner (self-hosted is not
+# supported), and the publisher is configured on npmjs.com against this
+# repository and this filename, release.yml. Renaming this file breaks
+# publishing until the publisher is updated there.
+name: release
+
+on:
+  push:
+    # A coarse gate, not the rule: it keeps a `v-broken` from starting a
+    # release run, and admits `v3.1.0-rc1` because a pre-release is a real
+    # release here. scripts/verify-version-tag.mjs is the actual check — it
+    # decides `latest` vs `next` and fails a tag package.json disagrees with.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          # Nothing to cache: this job never checks the repository out, it
+          # publishes the tarball verify packed. Off rather than left to
+          # detection, because the one run that exercises this job is a
+          # release, and npm refuses to republish a version.
+          package-manager-cache: false
+      - name: guard against a missing OIDC token
+        run: |
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "FATAL: no OIDC token in this job. Trusted publishing needs 'permissions: id-token: write'; without it npm would fail deep inside the publish with a credential error." >&2
+            exit 1
+          fi
+      - name: npm new enough for trusted publishing
+        run: |
+          npm install -g npm@^11.5.1
+          node -v
+          npm -v
+      - run: |
+          eval "$(cat dist-tag.env)"
+          if [ -z "${DIST_TAG:-}" ]; then
+            echo "FATAL: dist-tag.env from verify carries no DIST_TAG. verify only writes one on a tag run; this job should not have run." >&2
+            exit 1
+          fi
+          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
+      - run: |
+          set -- fleetless-sdk-*.tgz
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+            echo "FATAL: expected exactly one packed tarball from verify, found: $*" >&2
+            exit 1
+          fi
+          echo "TARBALL=$1" >> "$GITHUB_ENV"
+      - run: echo "publishing $TARBALL to dist-tag $DIST_TAG by trusted publishing"
+      # No .npmrc and no token: npm reads the job's OIDC credential, and
+      # generates the provenance attestation itself for a public package from
+      # a public repository.
+      - run: npm publish "$TARBALL" --access public --tag "$DIST_TAG"
+      # The registry, not the exit code, is the evidence that it landed.
+      - run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            seen=$(npm view "@fleetless/sdk@$VERSION" version 2>/dev/null || true)
+            [ "$seen" = "$VERSION" ] && break
+            echo "npm does not report $VERSION yet (attempt $attempt of 12, saw '${seen:-nothing}'); waiting"
+            sleep 10
+          done
+          if [ "$seen" != "$VERSION" ]; then
+            echo "FATAL: npm publish exited 0 but the registry does not serve @fleetless/sdk@$VERSION after 12 lookups over ~2 minutes." >&2
+            echo "publish may have succeeded; do NOT retry this job (npm refuses to republish a version) — check \`npm view @fleetless/sdk@$VERSION\` by hand" >&2
+            exit 1
+          fi
+          echo "npm has @fleetless/sdk@$VERSION"

@@ -1,0 +1,22 @@
+packages:
+  - "."
+onlyBuiltDependencies:
+  - esbuild
+# `@fleetless/contracts` is a public npm package now and ships its own `dist/`,
+# so it has no install-time build to allow and no entry here. The exact-git-
+# specifier key that used to sit beside `esbuild` — the second pin site, which
+# had to move with `package.json` or install failed with
+# GIT_DEP_PREPARE_NOT_ALLOWED — is gone with the specifier.
+allowBuilds:
+  esbuild: true
+# pnpm 11 refuses a dependency version younger than its release-age cooldown,
+# and this one was published the same day it was pinned. pnpm added the
+# exclusion itself during the install. **Keep it — deleting it breaks a warm
+# local `pnpm install` too, not only a cold container.** The policy is read from
+# this file at install time, so a populated store exempts nothing: measured,
+# `pnpm install --frozen-lockfile` without the entry fails immediately with
+# `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION` naming the package and the cutoff,
+# under an error text that invites the wrong conclusion — it suggests the
+# lockfile is stale or was bypassed locally.
+minimumReleaseAgeExclude:
+  - '@fleetless/contracts@1.0.5'
