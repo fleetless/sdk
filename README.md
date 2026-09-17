@@ -24,6 +24,8 @@ Fleetless is in closed beta. The waiting list is at
 
 ## ✨ What you can do with it
 
+- **Find your robots** and read what your role lets you do on each — slugs,
+  units, parameter schemas — before you draw a screen.
 - **Read datapoints** once, subscribe to them live over one reconnecting
   WebSocket, or query their recorded history.
 - **Run actions and call services** by slug, with feedback, progress and
