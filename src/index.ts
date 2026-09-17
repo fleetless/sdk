@@ -12,7 +12,9 @@
  * history. `actions`, `services` and `publishers` send commands over that same
  * channel, each reply correlated back to its own call. `cameras` fetches
  * snapshot bytes and opens a live video session. `jobs` lists what a robot is
- * running and `assets` reads its URDF and meshes.
+ * running and `assets` reads its URDF and meshes. `robots` is where a screen
+ * starts: which robots the caller reaches, and what their role lets them do
+ * on each.
  *
  * The wire types the API returns are re-exported from `@fleetless/contracts`
  * rather than redefined here, so app code and the SDK always agree on the
@@ -46,6 +48,7 @@ export type { PublishersApi } from './publishers.js'
 export type { CamerasApi, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession } from './cameras.js'
 export type { JobSubscription, JobSubscriptionHandlers } from './job-subscriptions.js'
 export type { JobsApi } from './jobs.js'
+export type { RobotsApi } from './robots.js'
 export type { SendCommandOptions, InvokeOptions } from './commands.js'
 export type {
   AssetsApi,
@@ -90,6 +93,14 @@ export type {
   // One entry of `auth.listMcpGrants()` — a standing consent, for a
   // "connected apps" list.
   McpConsentGrant,
+  // What `robots.list` resolves with, one row per reachable robot, and what
+  // `robots.describe` resolves with: the datasheet, its exposures and its
+  // capabilities. Holding any of them would otherwise mean reaching into
+  // `@fleetless/contracts` directly, as with `AssetListResponse` above.
+  ClientRobotListItem,
+  McpRobotDatasheet,
+  McpExposure,
+  McpCapabilities,
 } from '@fleetless/contracts'
 
 /**

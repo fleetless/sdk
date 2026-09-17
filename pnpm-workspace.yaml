@@ -19,4 +19,4 @@ allowBuilds:
 # under an error text that invites the wrong conclusion — it suggests the
 # lockfile is stale or was bypassed locally.
 minimumReleaseAgeExclude:
-  - '@fleetless/contracts@1.0.5'
+  - '@fleetless/contracts@1.0.5 || 1.1.0'

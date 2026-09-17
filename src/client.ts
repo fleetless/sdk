@@ -10,6 +10,7 @@ import { createJobSubscriptions } from './job-subscriptions.js'
 import { createJobsApi, type JobsApi } from './jobs.js'
 import { createPublishersApi, type PublishersApi } from './publishers.js'
 import { RealtimeChannel } from './realtime.js'
+import { createRobotsApi, type RobotsApi } from './robots.js'
 import { createServicesApi, type ServicesApi } from './services.js'
 import { createSlugSubscriptions } from './slug-subscriptions.js'
 import { InMemoryTokenStore, type TokenStore } from './token-store.js'
@@ -90,6 +91,8 @@ export interface FleetlessClient {
   readonly jobs: JobsApi
   /** URDF and mesh reads — list/get/urdf, plus the `urdf-loader` mesh callback. */
   readonly assets: AssetsApi
+  /** Which robots this caller reaches, and what their role lets them do on each — the calls every screen starts from. */
+  readonly robots: RobotsApi
   /**
    * Closes the realtime channel and stops it from reconnecting. Safe with
    * no subscription ever made, and safe to call twice. A Node script (the
@@ -186,6 +189,8 @@ export function createClient(options: FleetlessClientOptions): FleetlessClient {
   // REST-only too: a robot-wide job read, not addressed by slug (see jobs.ts).
   const jobs = createJobsApi(http)
   const assets = createAssetsApi(http)
+  // REST-only, like cameras and jobs: discovery is a read, not a stream.
+  const robots = createRobotsApi(http)
 
   // logout() ends the session; an authenticated socket left streaming after
   // that is not a session anymore, it's a leak. Server-key clients never
@@ -211,6 +216,7 @@ export function createClient(options: FleetlessClientOptions): FleetlessClient {
     cameras,
     jobs,
     assets,
+    robots,
     close() {
       channel.close()
     },
