@@ -4,6 +4,12 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [3.1.1] — 2026-09-17
+
+### Fixed
+
+- Every field of `JobHistoryOptions` carries its description, and `McpExposure` and `McpCapabilities` are documented aliases rather than bare re-exports, so the generated reference describes them. No behaviour changes.
+
 ## [3.1.0] — 2026-09-17
 
 ### Added

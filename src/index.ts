@@ -48,7 +48,7 @@ export type { PublishersApi } from './publishers.js'
 export type { CamerasApi, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession } from './cameras.js'
 export type { JobSubscription, JobSubscriptionHandlers } from './job-subscriptions.js'
 export type { JobsApi, JobHistoryOptions } from './jobs.js'
-export type { RobotsApi } from './robots.js'
+export type { RobotsApi, McpExposure, McpCapabilities } from './robots.js'
 export type { SendCommandOptions, InvokeOptions } from './commands.js'
 export type {
   AssetsApi,
@@ -98,13 +98,14 @@ export type {
   // "connected apps" list.
   McpConsentGrant,
   // What `robots.list` resolves with, one row per reachable robot, and what
-  // `robots.describe` resolves with: the datasheet, its exposures and its
-  // capabilities. Holding any of them would otherwise mean reaching into
-  // `@fleetless/contracts` directly, as with `AssetListResponse` above.
+  // `robots.describe` resolves with: the datasheet itself. Holding either
+  // would otherwise mean reaching into `@fleetless/contracts` directly, as
+  // with `AssetListResponse` above. Its `exposures` and `capabilities`
+  // fields are `McpExposure`/`McpCapabilities` — documented aliases from
+  // `./robots.js`, not re-exported here, because neither has a standalone
+  // contracts artifact the docs could alias.
   ClientRobotListItem,
   McpRobotDatasheet,
-  McpExposure,
-  McpCapabilities,
 } from '@fleetless/contracts'
 
 /**

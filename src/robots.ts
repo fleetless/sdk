@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: MIT
-import type { ClientRobotListItem, ClientRobotListResponse, McpRobotDatasheet } from '@fleetless/contracts'
+import type {
+  ClientRobotListItem,
+  ClientRobotListResponse,
+  McpCapabilities as WireMcpCapabilities,
+  McpExposure as WireMcpExposure,
+  McpRobotDatasheet,
+} from '@fleetless/contracts'
 import { pathSegment, type HttpClient } from './http.js'
+
+/**
+ * One row of a datasheet's `exposures`: a granted datapoint, action, service,
+ * publisher or camera, with its `slug`, `kind`, `description` (or `null`),
+ * a datapoint's `unit` and `decimals`, and for anything that takes
+ * parameters the JSON Schema under `input_schema`. The wire shape is
+ * contracts' `mcpExposure`; the alias exists so the reference can describe it.
+ */
+export type McpExposure = WireMcpExposure
+/**
+ * The two role capabilities a datasheet names beyond slugs: `action_history`
+ * (may `jobs.history` be read) and `assets` (may the URDF and meshes be read).
+ * The wire shape is contracts' `mcpCapabilities`.
+ */
+export type McpCapabilities = WireMcpCapabilities
 
 /**
  * Discovery, reachable as `client.robots`: which robots may I name at all,

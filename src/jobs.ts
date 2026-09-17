@@ -11,13 +11,19 @@ import { pathSegment, type HttpClient } from './http.js'
  * `validation_error`, not quietly reduced.
  */
 export interface JobHistoryOptions {
+  /** Only runs of this action or service. */
   slug?: string
+  /** Only runs in this state: `running`, `succeeded`, `failed`, `cancelled` or `lost`. */
   state?: JobState
+  /** Only `action` runs, or only `service` runs. */
   kind?: 'action' | 'service'
+  /** How many runs to return, 1 to 200; absent means 100. Above the cap the platform refuses with `validation_error` rather than trimming. */
   limit?: number
   /** The previous page's `next_cursor`. Send it back rather than computing one. */
   beforeSeq?: number
+  /** Only runs that started at or after this unix timestamp in milliseconds; with `toMs` the window is half-open, `[from, to)`. */
   fromMs?: number
+  /** Only runs that started before this unix timestamp in milliseconds. */
   toMs?: number
 }
 
