@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 import { describe, it, expect, vi } from 'vitest'
-import type { Job } from '@fleetless/contracts'
+import type { Job, JobRunListResponse } from '@fleetless/contracts'
 import { HttpClient, noCredentials } from '../src/http.js'
 import { createJobsApi } from '../src/jobs.js'
 import { FleetlessError } from '../src/errors.js'
@@ -85,5 +85,56 @@ describe('jobs.list', () => {
     const promise = client(fetchImpl as unknown as typeof fetch).list('robot1')
     await expect(promise).rejects.toBeInstanceOf(FleetlessError)
     await expect(promise).rejects.toMatchObject({ code: 'forbidden' })
+  })
+})
+
+const RUN_PAGE: JobRunListResponse = {
+  runs: [{
+    id: 'run1', robot_id: 'robot1', slug: 'dock', kind: 'action', state: 'succeeded',
+    started_at: '2026-09-17T08:00:00.000Z', ended_at: '2026-09-17T08:00:04.000Z', duration_ms: 4000,
+    result: { ok: true }, error: null,
+    actor: { kind: 'app_user', id: 'user1', label: 'sam@example.com' },
+    seq: 41, progress: null, feedback: null,
+  }],
+  next_cursor: 41,
+}
+
+describe('jobs.history', () => {
+  it('reads the run history with a plain GET and no query when no option is set', async () => {
+    const fetchImpl = fakeFetch(async (input, init) => {
+      expect(String(input)).toBe('https://api.fleetless.dev/api/robots/robot1/jobs/history')
+      expect(init?.method ?? 'GET').toBe('GET')
+      return jsonResponse(RUN_PAGE)
+    })
+    await expect(client(fetchImpl as unknown as typeof fetch).history('robot1')).resolves.toEqual(RUN_PAGE)
+  })
+
+  it('sends every set option under its wire name and omits every unset one', async () => {
+    const fetchImpl = fakeFetch(async (input) => {
+      const url = new URL(String(input))
+      expect(url.pathname).toBe('/api/robots/robot1/jobs/history')
+      expect([...url.searchParams.keys()].sort()).toEqual(['before_seq', 'from_ms', 'kind', 'limit', 'slug', 'state', 'to_ms'])
+      expect(url.searchParams.get('before_seq')).toBe('41')
+      expect(url.searchParams.get('limit')).toBe('50')
+      expect(url.searchParams.get('from_ms')).toBe('1700000000000')
+      return jsonResponse({ runs: [], next_cursor: null } satisfies JobRunListResponse)
+    })
+    await client(fetchImpl as unknown as typeof fetch).history('robot1', {
+      slug: 'dock', state: 'succeeded', kind: 'action', limit: 50, beforeSeq: 41, fromMs: 1700000000000, toMs: 1700000030000,
+    })
+  })
+
+  it('sends only `slug` when only slug is set', async () => {
+    const fetchImpl = fakeFetch(async (input) => {
+      const url = new URL(String(input))
+      expect([...url.searchParams.keys()]).toEqual(['slug'])
+      return jsonResponse({ runs: [], next_cursor: null } satisfies JobRunListResponse)
+    })
+    await client(fetchImpl as unknown as typeof fetch).history('robot1', { slug: 'dock' })
+  })
+
+  it('rejects capability_required as a FleetlessError, naming the switch to flip', async () => {
+    const fetchImpl = fakeFetch(async () => errorResponse('capability_required', 'The role lacks action_history.', 403))
+    await expect(client(fetchImpl as unknown as typeof fetch).history('robot1')).rejects.toMatchObject({ code: 'capability_required' })
   })
 })

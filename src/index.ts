@@ -47,7 +47,7 @@ export type { ServicesApi } from './services.js'
 export type { PublishersApi } from './publishers.js'
 export type { CamerasApi, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession } from './cameras.js'
 export type { JobSubscription, JobSubscriptionHandlers } from './job-subscriptions.js'
-export type { JobsApi } from './jobs.js'
+export type { JobsApi, JobHistoryOptions } from './jobs.js'
 export type { RobotsApi } from './robots.js'
 export type { SendCommandOptions, InvokeOptions } from './commands.js'
 export type {
@@ -70,6 +70,10 @@ export type {
   JobState,
   JobEvent,
   BusyDetails,
+  // What `jobs.history` resolves with, and one row of it — the durable run
+  // record with its actor and outcome, for an activity list.
+  JobRunListResponse,
+  JobRun,
   CameraDescriptor,
   HistorySamplesResponse,
   HistoryBucketsResponse,
