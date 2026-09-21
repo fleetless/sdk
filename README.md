@@ -95,10 +95,10 @@ Everything past this point lives at **[docs.fleetless.dev](https://docs.fleetles
   method, every option, and what each one deliberately does not do.
 - **[Getting started](https://docs.fleetless.dev/getting-started/)** — from a
   robot that has never connected to a value in your app.
-- **[Your own login UI](https://docs.fleetless.dev/recipes/app-auth/)** — the
-  walkthrough for every sign-in screen.
-- **[Identity](https://docs.fleetless.dev/reference/identity/)** — the two
-  identity spaces, and what a refusal licenses your UI to claim.
+- **[App Starter](https://docs.fleetless.dev/recipes/app-starter/)** — every
+  sign-in screen, already built, on this SDK.
+- **[Manage users and roles](https://docs.fleetless.dev/concepts/manage-users-and-roles/)** —
+  the two identity spaces, and what a refusal licenses your UI to claim.
 - **[REST and realtime API](https://docs.fleetless.dev/reference/api/)** —
   the wire underneath this package.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed in each version.
