@@ -490,8 +490,9 @@ function isNetworkFetchableAbsoluteUrl(url: string): boolean {
  * Whether `prepareUrdfScene` pre-fetches an asset of this kind — a
  * deliberate, closed set (`mesh`, `texture`), not "everything
  * `assets.list()` can return": `urdf` is fetched separately as raw text.
- * `@fleetless/contracts`' `assetKind` is exactly these three now — a mesh's
- * own textures are the mesh's business, not a fourth kind of their own.
+ * `@fleetless/contracts`' `assetKind` is exactly these three now — mesh,
+ * texture and urdf are the whole set; there is no catch-all kind left to
+ * decide about.
  *
  * **Written as an exhaustive `switch` over `AssetKind`, not
  * `kind === 'mesh' || kind === 'texture'`, on purpose.** A predicate that

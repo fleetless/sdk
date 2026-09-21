@@ -6,8 +6,9 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ### Changed
 
-- **`BridgeState` gains `low_bandwidth`** (bridge protocol 3): whether the robot's bridge is in its low-bandwidth mode.
+- **`BridgeState` gains `low_bandwidth`** (bridge protocol 3): whether the robot's bridge is in its low-bandwidth mode. Required, not optional.
 - **`AssetListResponse` gains `store` (`bytes`, `used_bytes`) and `joint_state_slug`.**
+- **`AssetListResponse.active_sync.failed[].details` changed shape**: `{ limit_bytes, size_bytes }` is now `{ store_bytes, used_bytes, size_bytes }`.
 
 ### Removed
 
