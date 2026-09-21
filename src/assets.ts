@@ -489,12 +489,9 @@ function isNetworkFetchableAbsoluteUrl(url: string): boolean {
 /**
  * Whether `prepareUrdfScene` pre-fetches an asset of this kind — a
  * deliberate, closed set (`mesh`, `texture`), not "everything
- * `assets.list()` can return": `urdf` is fetched separately as raw text,
- * and `other` is deliberately not implicitly renderable (`@fleetless/contracts`'
- * own doc comment on `assetKind`: `other` is a catch-all that has been
- * split into narrower kinds several times already, and a caller has no
- * way to know what an `other`-kind asset even is without pre-fetching it
- * blind).
+ * `assets.list()` can return": `urdf` is fetched separately as raw text.
+ * `@fleetless/contracts`' `assetKind` is exactly these three now — a mesh's
+ * own textures are the mesh's business, not a fourth kind of their own.
  *
  * **Written as an exhaustive `switch` over `AssetKind`, not
  * `kind === 'mesh' || kind === 'texture'`, on purpose.** A predicate that
@@ -502,7 +499,7 @@ function isNetworkFetchableAbsoluteUrl(url: string): boolean {
  * skips the next member the kind gains — which is how `texture` itself was
  * missed by three separate call sites when it was added. A boolean OR here
  * would fail the identical way the moment
- * `assetKind` gains a fifth member: `tsc` would stay green, `renderAssets`
+ * `assetKind` gains a fourth member: `tsc` would stay green, `renderAssets`
  * would just quietly not include it, and the symptom would be a robot that
  * renders with one surface missing, visible by looking at it rather than
  * by a build failing. The `default` branch below makes that impossible —
@@ -517,7 +514,6 @@ function isRenderKind(kind: AssetKind): boolean {
     case 'texture':
       return true
     case 'urdf':
-    case 'other':
       return false
     default: {
       const exhaustive: never = kind

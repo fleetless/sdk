@@ -24,8 +24,8 @@ function client(fetchImpl: typeof fetch) {
 
 const LIST: ClientRobotListResponse = {
   robots: [
-    { id: 'robot1', name: 'alpha', created_at: '2026-09-17T08:00:00.000Z', bridge_state: { online: true, latency_ms: 12 }, published_version: 3 },
-    { id: 'robot2', name: 'bravo', created_at: '2026-09-17T08:00:00.000Z', bridge_state: { online: false, latency_ms: null }, published_version: null },
+    { id: 'robot1', name: 'alpha', created_at: '2026-09-17T08:00:00.000Z', bridge_state: { online: true, latency_ms: 12, low_bandwidth: true }, published_version: 3 },
+    { id: 'robot2', name: 'bravo', created_at: '2026-09-17T08:00:00.000Z', bridge_state: { online: false, latency_ms: null, low_bandwidth: false }, published_version: null },
   ],
 }
 
@@ -48,6 +48,13 @@ describe('robots.list', () => {
       return jsonResponse(LIST)
     })
     await expect(client(fetchImpl as unknown as typeof fetch).list()).resolves.toEqual(LIST.robots)
+  })
+
+  it("passes bridge_state.low_bandwidth through untouched, bridge-reported same as online and latency_ms", async () => {
+    const fetchImpl = fakeFetch(async () => jsonResponse(LIST))
+    const robots = await client(fetchImpl as unknown as typeof fetch).list()
+    expect(robots[0]?.bridge_state.low_bandwidth).toBe(true)
+    expect(robots[1]?.bridge_state.low_bandwidth).toBe(false)
   })
 
   it('resolves an empty array for a caller who reaches nothing — "nothing" is not "we did not look"', async () => {

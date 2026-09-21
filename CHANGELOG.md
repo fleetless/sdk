@@ -4,6 +4,15 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Changed
+
+- **`BridgeState` gains `low_bandwidth`** (bridge protocol 3): whether the robot's bridge is in its low-bandwidth mode.
+- **`AssetListResponse` gains `store` (`bytes`, `used_bytes`) and `joint_state_slug`.**
+
+### Removed
+
+- **`AssetKind` `other` and the asset failure kind `too_large`.** A robot has one gigabyte of asset storage; there is no per-file limit. This is a major.
+
 ## [3.1.1] — 2026-09-17
 
 ### Fixed

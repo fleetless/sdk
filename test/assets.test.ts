@@ -46,6 +46,8 @@ const LIST_RESPONSE: AssetListResponse = {
   urdf: { present: true, mesh_count: 3, missing: [{ uri: 'package://robot_description/meshes/gripper.stl', element: 'mesh' }] },
   urdf_available: true,
   active_sync: null,
+  store: { bytes: 1_000_000_000, used_bytes: 4096 },
+  joint_state_slug: 'joint_states',
 }
 
 describe('assets.list', () => {
@@ -107,89 +109,104 @@ describe('assets.syncStatus', () => {
 
   // A generic error body's `details` always reaches `FleetlessError`
   // unconditionally — `http.ts` forwards `body?.details` for every route, no
-  // per-code special-casing. Proven here against `asset_too_large`'s actual
+  // per-code special-casing. Proven here against `quota_exceeded`'s actual
   // shape rather than trusted by name, the same discipline `services.call`'s
   // `unwrap()` applies to `job.error.details`. Stays even though the next
-  // test found the real path: this generic mechanism is what the raw `413`
+  // test found the real path: this generic mechanism is what the raw `409`
   // on the bridge-upload route still uses, and nothing else covers it if
   // this breaks.
   it('passes a structured error body straight through to FleetlessError.details, unmodified', async () => {
-    const details = { limit_bytes: 64 * 1024 * 1024, size_bytes: 193_886_766 }
-    const fetchImpl = fakeFetch(async () => jsonResponse({ code: 'asset_too_large', message: 'too big', details }, 413))
+    const details = { store_bytes: 1_000_000_000, used_bytes: 998_000_000, size_bytes: 5_000_000 }
+    const fetchImpl = fakeFetch(async () => jsonResponse({ code: 'quota_exceeded', message: 'no room', details }, 409))
     await expect(client(fetchImpl as unknown as typeof fetch).syncStatus('robot1', 'sync1')).rejects.toMatchObject({
-      code: 'asset_too_large',
+      code: 'quota_exceeded',
       details,
     })
   })
 
-  // The actual answer: a too-large file never reaches a developer-
+  // The actual answer: a store-full refusal never reaches a developer-
   // authenticated route as an HTTP error — it's reported inside the sync's
-  // own progress, as a `failed[]` entry with `kind: 'too_large'` and
-  // `details: {limit_bytes, size_bytes}`. Both tests below prove the same
-  // for `active_sync` as a whole: the SDK does no field-by-field mapping of
-  // `assetSyncStatus`/`assetFailure`, so a new contract shape arrives
-  // unmodified with no SDK change.
-  it("carries a too_large entry's reference AND both numbers through unmodified, the file over the ceiling named among files that kept syncing", async () => {
-    const tooLarge = {
+  // own progress, as a `failed[]` entry with `kind: 'refused'` and
+  // `details: {store_bytes, used_bytes, size_bytes}`. Both tests below prove
+  // the same for `active_sync` as a whole: the SDK does no field-by-field
+  // mapping of `assetSyncStatus`/`assetFailure`, so a new contract shape
+  // arrives unmodified with no SDK change.
+  it("carries a refused entry's reference AND all three numbers through unmodified, the file over the store's room named among files that kept syncing", async () => {
+    const refused = {
       reference: 'package://robot_description/meshes/base.dae',
-      kind: 'too_large' as const,
-      details: { limit_bytes: 64 * 1024 * 1024, size_bytes: 193_886_766 },
+      kind: 'refused' as const,
+      details: { store_bytes: 1_000_000_000, used_bytes: 998_000_000, size_bytes: 5_000_000 },
     }
     const status: AssetSyncStatus = {
       ...RUNNING_SYNC,
       state: 'failed',
       // The rest of the sync kept going — a resolved entry sits beside the
-      // refused one; it didn't stop at the first ceiling hit.
-      failed: [tooLarge, { reference: 'package://robot_description/meshes/gripper.stl', kind: 'unresolvable' }],
+      // refused one; it didn't stop at the first refusal.
+      failed: [refused, { reference: 'package://robot_description/meshes/gripper.stl', kind: 'unresolvable' }],
     }
     const fetchImpl = fakeFetch(async () => jsonResponse(status))
 
     const result = await client(fetchImpl as unknown as typeof fetch).syncStatus('robot1', 'sync1')
     expect(result.failed).toEqual(status.failed)
-    expect(result.failed[0]).toMatchObject({ kind: 'too_large', details: { limit_bytes: 64 * 1024 * 1024, size_bytes: 193_886_766 } })
+    expect(result.failed[0]).toMatchObject({
+      kind: 'refused',
+      details: { store_bytes: 1_000_000_000, used_bytes: 998_000_000, size_bytes: 5_000_000 },
+    })
   })
 
-  it('the same too_large entry survives list()\'s active_sync too — the reload case', async () => {
-    const tooLarge = {
+  it("the same refused entry survives list()'s active_sync too — the reload case", async () => {
+    const refused = {
       reference: 'package://robot_description/meshes/base.dae',
-      kind: 'too_large' as const,
-      details: { limit_bytes: 64 * 1024 * 1024, size_bytes: 193_886_766 },
+      kind: 'refused' as const,
+      details: { store_bytes: 1_000_000_000, used_bytes: 998_000_000, size_bytes: 5_000_000 },
     }
     const listResponse: AssetListResponse = {
       ...LIST_RESPONSE,
-      active_sync: { ...RUNNING_SYNC, state: 'failed', failed: [tooLarge] },
+      active_sync: { ...RUNNING_SYNC, state: 'failed', failed: [refused] },
     }
     const fetchImpl = fakeFetch(async () => jsonResponse(listResponse))
 
     const result = await client(fetchImpl as unknown as typeof fetch).list('robot1')
-    expect(result.active_sync?.failed).toEqual([tooLarge])
+    expect(result.active_sync?.failed).toEqual([refused])
   })
 })
 
-describe('assetFailure — the too_large/details pairing is enforced, not described (contracts 764a1eb)', () => {
+describe('assetFailure — the refused/details pairing is enforced, not described', () => {
   // Deliberately runtime `.safeParse()` against the real schema, not a typed
   // fixture — unlike everywhere else in this file, `tsc` cannot catch a
   // violation here: `details` is `.nullish()` at the type level regardless
   // of `kind` (the pairing lives in `.superRefine()`, invisible to
-  // `z.infer`), so only actually parsing proves the rule holds in both
-  // directions the lead asked for: `too_large` never arrives without the
-  // numbers, and no other kind carries them un-asked-for.
-  it('refuses too_large without details, and refuses details on anything else', () => {
-    expect(assetFailure.safeParse({ reference: 'x', kind: 'too_large' }).success).toBe(false)
+  // `z.infer`), so only actually parsing proves the rule holds: `details`
+  // belongs to `refused` and nothing else. Unlike the removed `too_large`
+  // kind, `refused` does not itself require `details` — a producer-side
+  // ceiling refuses with no store number to report.
+  it('refuses details on anything but refused', () => {
     expect(
       assetFailure.safeParse({
         reference: 'x',
         kind: 'unresolvable',
-        details: { limit_bytes: 1, size_bytes: 2 },
+        details: { store_bytes: 1, used_bytes: 0, size_bytes: 2 },
+      }).success,
+    ).toBe(false)
+    expect(
+      assetFailure.safeParse({
+        reference: 'x',
+        kind: 'upload_failed',
+        details: { store_bytes: 1, used_bytes: 0, size_bytes: 2 },
       }).success,
     ).toBe(false)
   })
 
-  it('accepts too_large with details, and accepts every other kind with none', () => {
+  it('accepts refused with or without details, and accepts every other kind with none', () => {
     expect(
-      assetFailure.safeParse({ reference: 'x', kind: 'too_large', details: { limit_bytes: 1, size_bytes: 2 } }).success,
+      assetFailure.safeParse({
+        reference: 'x',
+        kind: 'refused',
+        details: { store_bytes: 1, used_bytes: 0, size_bytes: 2 },
+      }).success,
     ).toBe(true)
-    for (const kind of ['unresolvable', 'upload_failed', 'refused'] as const) {
+    expect(assetFailure.safeParse({ reference: 'x', kind: 'refused' }).success).toBe(true)
+    for (const kind of ['unresolvable', 'upload_failed'] as const) {
       expect(assetFailure.safeParse({ reference: 'x', kind }).success).toBe(true)
     }
   })
@@ -491,6 +508,8 @@ describe('assets.prepareUrdfScene', () => {
     urdf: { present: true, mesh_count: 2, missing: [{ uri: 'package://robot_description/meshes/gripper.stl', element: 'mesh' }] },
     urdf_available: true,
     active_sync: null,
+    store: { bytes: 1_000_000_000, used_bytes: 8192 },
+    joint_state_slug: null,
   }
 
   function sceneFetch() {
@@ -624,6 +643,8 @@ describe('assets.prepareUrdfScene', () => {
       urdf: { present: true, mesh_count: 2, missing: [{ uri: unsyncedPackageRef, element: 'mesh' }] },
       urdf_available: true,
       active_sync: null,
+      store: { bytes: 1_000_000_000, used_bytes: 8192 },
+      joint_state_slug: null,
     }
     const fetchImpl = fakeFetch(async (input) => {
       const url = String(input)
@@ -739,6 +760,8 @@ describe('assets.prepareUrdfScene', () => {
       urdf: { present: false, mesh_count: 0, missing: [] },
       urdf_available: null,
       active_sync: null,
+      store: { bytes: 1_000_000_000, used_bytes: 8192 },
+      joint_state_slug: null,
     }
     const fetchImpl = fakeFetch(async (input) => {
       const url = String(input)
@@ -749,34 +772,6 @@ describe('assets.prepareUrdfScene', () => {
     await expect(
       client(fetchImpl as unknown as typeof fetch).prepareUrdfScene('robot1', fakeManager()),
     ).rejects.toMatchObject({ code: 'no_urdf_synced' })
-  })
-
-  it("never fetches or maps an 'other'-kind asset — the render set is mesh/texture only, not everything in the list", async () => {
-    const otherAsset = assetFixture({ id: 'other1', kind: 'other', name: 'package://robot_description/CHANGELOG.md' })
-    const listResponse: AssetListResponse = {
-      assets: [URDF_ASSET, MESH_ASSET, otherAsset],
-      urdf: { present: true, mesh_count: 1, missing: [] },
-      urdf_available: true,
-      active_sync: null,
-    }
-    const fetchImpl = fakeFetch(async (input) => {
-      const url = String(input)
-      if (url.endsWith('/api/robots/robot1/assets')) return jsonResponse(listResponse)
-      if (url.endsWith(`/assets/${URDF_ASSET.id}`)) {
-        return bytesResponse(new TextEncoder().encode(RAW_URDF_TEXT), { 'content-type': 'application/xml' })
-      }
-      if (url.endsWith(`/assets/${MESH_ASSET.id}`)) return bytesResponse(new Uint8Array([1, 2, 3]), { 'content-type': 'model/stl' })
-      throw new Error(`must not fetch the 'other'-kind asset: ${url}`)
-    })
-
-    const manager = fakeManager()
-    await client(fetchImpl as unknown as typeof fetch).prepareUrdfScene('robot1', manager)
-
-    expect(manager.resolve(MESH_ASSET.name)).toMatch(/^blob:/)
-    // Never mapped — resolves to the refused blob, not the raw name.
-    const resolvedOther = manager.resolve(otherAsset.name)
-    expect(resolvedOther).toMatch(/^blob:/)
-    expect(resolvedOther).not.toBe(manager.resolve(MESH_ASSET.name))
   })
 
   it('dispose revokes every real asset blob URL it created (and only those — never the shared refused-reference sentinel) and keeps refusing owned references afterwards', async () => {
@@ -819,6 +814,8 @@ describe('assets.prepareUrdfScene', () => {
       urdf: { present: true, mesh_count: meshes.length, missing: [] },
       urdf_available: true,
       active_sync: null,
+      store: { bytes: 1_000_000_000, used_bytes: 8192 },
+      joint_state_slug: null,
     }
 
     let inFlight = 0
