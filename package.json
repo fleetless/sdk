@@ -1,6 +1,6 @@
 {
   "name": "@fleetless/sdk",
-  "version": "3.1.1",
+  "version": "4.0.0",
   "description": "The official TypeScript SDK for Fleetless client apps — a ROS 2 robot as a REST and realtime API, cameras, jobs, and the app's own user accounts, federated sign-in and MCP consent.",
   "license": "MIT",
   "author": {
@@ -76,7 +76,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@fleetless/contracts": "1.1.0",
+    "@fleetless/contracts": "2.0.0",
     "@types/node": "^22.20.1",
     "tsup": "^8.3.0",
     "typedoc": "0.28.20",

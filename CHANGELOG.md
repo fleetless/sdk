@@ -2,7 +2,7 @@
 
 All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; the versions follow semver.
 
-## [Unreleased]
+## [4.0.0] — 2026-09-22
 
 ### Added
 
