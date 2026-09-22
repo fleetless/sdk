@@ -74,6 +74,10 @@ const RUNNING_SYNC: AssetSyncStatus = {
   total: 10,
   failed: [],
   reason: null,
+  // `null` while the sync is still running: the cloud counts its own store
+  // once, after the robot's terminal frame.
+  stored: null,
+  announced: 11,
   started_at: '2026-08-19T10:00:00.000Z',
   updated_at: '2026-08-19T10:00:03.000Z',
 }
