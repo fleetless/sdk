@@ -4,8 +4,7 @@ import { createClient, type CredentialSource } from '../src/index.js'
 import { FakeWebSocket } from './fake-websocket.js'
 
 /**
- * **D4 (2026-09-22 triage): a client can be handed the credential it should
- * use.**
+ * **A client can be handed the credential it should use.**
  *
  * The two modes this SDK had both own their credential: `tokenStore` builds
  * a session that refreshes itself, `serverKey` wraps a static string. An
