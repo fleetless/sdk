@@ -37,6 +37,25 @@ export interface FleetlessClientOptions {
    * with a server key never calls `auth.login`/`auth.logout`.
    */
   serverKey?: string
+  /**
+   * **A credential this client does not own.** The caller answers both
+   * questions a bearer raises: what the token is right now (`token()`), and
+   * what to do when the server says it expired (`handleExpired()`).
+   *
+   * For an embedder that already holds a session and refreshes it itself —
+   * the Fleetless console is the case this exists for. Without it such a
+   * caller had to impersonate a `TokenStore`, and a cloud-side
+   * `token_expired` arriving while its own clock still read live posted one
+   * empty refresh whose `validation_error` had to be translated back into a
+   * session message. A source that answers `handleExpired: false` never
+   * builds a refresh request at all.
+   *
+   * Mutually exclusive with `tokenStore` and `serverKey`, which each own a
+   * credential of their own; a client acts as exactly one identity.
+   * `auth.login`/`auth.logout` refuse here for the same reason they refuse
+   * on a server key: there is no session for this client to start or end.
+   */
+  credentials?: CredentialSource
   /** Injectable for tests, or a non-global `fetch` implementation. */
   fetch?: typeof fetch
   /** Injectable for tests, or a non-global `WebSocket` implementation. */
@@ -109,16 +128,22 @@ export interface FleetlessClient {
  * Builds a client for one app. Pass `tokenStore` (or nothing — the default
  * keeps the session in memory) for an app-user client that signs in with
  * `auth.login` or a federated provider; pass `serverKey` for a server-side
- * caller that never holds a user session. Passing both throws, because the
- * two are different identities and a client acts as exactly one.
+ * caller that never holds a user session; pass `credentials` when the
+ * embedder already holds the bearer and refreshes it itself. Passing more
+ * than one throws, because each is a different identity and a client acts
+ * as exactly one.
  *
  * Nothing is fetched here: the realtime channel opens on the first
  * subscription and closes on `close()` or `auth.logout()`.
  */
 export function createClient(options: FleetlessClientOptions): FleetlessClient {
-  if (options.serverKey !== undefined && options.tokenStore !== undefined) {
+  // Counted rather than compared pairwise: three options, three pairs, and
+  // a pair somebody forgets to add is a client with two identities.
+  const chosen = (['tokenStore', 'serverKey', 'credentials'] as const).filter((name) => options[name] !== undefined)
+  if (chosen.length > 1) {
     throw new Error(
-      'createClient: pass either `tokenStore` (end-user login) or `serverKey` (a server-side caller), not both.',
+      `createClient: pass exactly one of \`tokenStore\` (end-user login), \`serverKey\` (a server-side caller) `
+        + `or \`credentials\` (a bearer the caller owns) — got ${chosen.join(' and ')}.`,
     )
   }
 
@@ -156,7 +181,14 @@ export function createClient(options: FleetlessClientOptions): FleetlessClient {
   let auth: AuthApi
   let http: HttpClient
   let credentials: CredentialSource
-  if (options.serverKey !== undefined) {
+  if (options.credentials !== undefined) {
+    // The caller owns the credential: this client reads it per request and
+    // never refreshes on its own. Same `auth` as a server key, because the
+    // one thing both lack is a session of their own to start or end.
+    credentials = options.credentials
+    http = new HttpClient({ baseUrl: config.apiUrl, fetch: fetchImpl, credentials })
+    auth = createServerKeyAuth(http, config.appIdentifier, 'credentials')
+  } else if (options.serverKey !== undefined) {
     credentials = new ServerKeyCredentials(options.serverKey)
     http = new HttpClient({ baseUrl: config.apiUrl, fetch: fetchImpl, credentials })
     auth = createServerKeyAuth(http, config.appIdentifier)
@@ -195,7 +227,7 @@ export function createClient(options: FleetlessClientOptions): FleetlessClient {
   // logout() ends the session; an authenticated socket left streaming after
   // that is not a session anymore, it's a leak. Server-key clients never
   // call logout() (it throws — no session to end), so nothing to wrap there.
-  if (options.serverKey === undefined) {
+  if (options.serverKey === undefined && options.credentials === undefined) {
     const baseLogout = auth.logout.bind(auth)
     auth = {
       ...auth,

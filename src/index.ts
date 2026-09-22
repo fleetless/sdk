@@ -28,6 +28,12 @@ export type { FleetlessClient, FleetlessClientOptions, FleetlessClientConfig } f
 export { FleetlessError, SDK_ERROR_CODES } from './errors.js'
 export type { FleetlessErrorOptions, FleetlessErrorCode, SdkErrorCode } from './errors.js'
 
+/**
+ * A bearer this SDK does not own — `createClient({ credentials })`.
+ * Exported because an embedder that already holds a session implements it.
+ */
+export type { CredentialSource } from './http.js'
+
 export { InMemoryTokenStore } from './token-store.js'
 export type { TokenStore, StoredSession } from './token-store.js'
 

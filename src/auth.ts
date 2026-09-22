@@ -772,17 +772,37 @@ function oidcErrorFromCallbackParams(params: URLSearchParams): FleetlessError | 
  * here either needs a person's own session or answers one, and the `needs`
  * string has to say which; a message arguing that a server key "has no address
  * to verify" was arguing about the caller on a route that never reads it.
+ *
+ * **It names the option the caller actually passed**: `credentials`
+ * reaches the same refusals, and telling somebody their `serverKey` is the
+ * problem when they never passed one sends them looking for a key that does
+ * not exist.
  */
-function serverKeyRefusal(method: string, needs: string): never {
+function sessionlessRefusal(option: SessionlessOption, method: string, needs: string): never {
   throw new FleetlessError(
     'invalid_option',
-    `auth.${method} is not available on a client constructed with a serverKey — ${needs}. ` +
+    `auth.${method} is not available on a client constructed with ${option === 'serverKey' ? 'a serverKey' : 'a credentials source'} — ${needs}. ` +
       "Build a client with a tokenStore (an app user's own session) for this call.",
   )
 }
 
-/** The `auth` namespace for a client backed by a static server key: no session to log in or out of. */
-export function createServerKeyAuth(http: HttpClient, appIdentifier: string): AuthApi {
+/**
+ * Which option left this client without a session of its own — a static
+ * `serverKey`, or a `credentials` source the embedder owns. The two
+ * refuse the same calls for the same reason and differ only in what the
+ * message tells the caller to go and look at.
+ */
+export type SessionlessOption = 'serverKey' | 'credentials'
+
+/** The `auth` namespace for a client with no session of its own: nothing to log in or out of. */
+export function createServerKeyAuth(http: HttpClient, appIdentifier: string, option: SessionlessOption = 'serverKey'): AuthApi {
+  // Annotated on the const, not only on the arrow: TypeScript only treats a
+  // call as unreachable when the *variable* carries the `never` return type.
+  const serverKeyRefusal: (method: string, needs: string) => never = (method, needs) => sessionlessRefusal(option, method, needs)
+  // The two modes refuse the same calls; only the noun differs. Written out
+  // rather than left saying "a server key" to a caller who passed none.
+  const subject = option === 'serverKey' ? 'a server key' : 'a supplied credential'
+  const holder = option === 'serverKey' ? 'a server-key client' : 'a client with a supplied credential'
   return {
     // **`register`, `resendVerification` and `requestPasswordReset` are
     // allowed here** — see `createPublicAuthCalls`. They are public routes
@@ -798,13 +818,13 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string): Au
       // would verify the account and then drop the person's session on the
       // floor: the account moves to `active` and nobody is signed in, with a
       // resolved promise saying it went fine.
-      serverKeyRefusal('verifyEmail', 'the route answers a session and a server-key client has nowhere to store it, so the session would be silently discarded')
+      serverKeyRefusal('verifyEmail', `the route answers a session and ${holder} has nowhere to store it, so the session would be silently discarded`)
     },
     async login() {
-      serverKeyRefusal('login', 'a server key IS the credential; there is nothing to exchange')
+      serverKeyRefusal('login', `${subject} IS the credential; there is nothing to exchange`)
     },
     async logout() {
-      serverKeyRefusal('logout', 'a server key holds no session to end')
+      serverKeyRefusal('logout', `${subject} holds no session to end`)
     },
     async me() {
       // The one method a server key is actually for, and the reason `auth` is
@@ -812,15 +832,15 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string): Au
       return http.request('/api/client/me', {})
     },
     async changePassword() {
-      serverKeyRefusal('changePassword', 'a server key has no password; rotate the key in the console instead')
+      serverKeyRefusal('changePassword', `${subject} has no password${option === 'serverKey' ? '; rotate the key in the console instead' : ''}`)
     },
     async confirmPasswordReset() {
       // Same reason as `verifyEmail`: public route, but the answer is a
       // session this client cannot keep.
-      serverKeyRefusal('confirmPasswordReset', 'the route answers a session and a server-key client has nowhere to store it, so the session would be silently discarded')
+      serverKeyRefusal('confirmPasswordReset', `the route answers a session and ${holder} has nowhere to store it, so the session would be silently discarded`)
     },
     async acceptInvitation() {
-      serverKeyRefusal('acceptInvitation', 'the route answers a session and a server-key client has nowhere to store it, so the session would be silently discarded')
+      serverKeyRefusal('acceptInvitation', `the route answers a session and ${holder} has nowhere to store it, so the session would be silently discarded`)
     },
     async listProviders() {
       // **Allowed, unlike the rest.** The route is public and reads no caller:
@@ -854,16 +874,16 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string): Au
       return http.request(`/api/client/mcp/interactions/${pathSegment(id)}`, {})
     },
     async approveMcpInteraction() {
-      serverKeyRefusal('approveMcpInteraction', 'a consent is a person\'s decision, and a server key is not a person')
+      serverKeyRefusal('approveMcpInteraction', `a consent is a person's decision, and ${subject} is not a person`)
     },
     async denyMcpInteraction() {
-      serverKeyRefusal('denyMcpInteraction', 'a consent is a person\'s decision, and a server key is not a person')
+      serverKeyRefusal('denyMcpInteraction', `a consent is a person's decision, and ${subject} is not a person`)
     },
     async listMcpGrants() {
-      serverKeyRefusal('listMcpGrants', 'a server key never went through a consent screen, so it has no grants of its own')
+      serverKeyRefusal('listMcpGrants', `${subject} never went through a consent screen, so it has no grants of its own`)
     },
     async revokeMcpGrant() {
-      serverKeyRefusal('revokeMcpGrant', 'a server key never went through a consent screen, so it has no grants of its own')
+      serverKeyRefusal('revokeMcpGrant', `${subject} never went through a consent screen, so it has no grants of its own`)
     },
   }
 }

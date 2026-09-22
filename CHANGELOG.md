@@ -4,6 +4,10 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Added
+
+- **`createClient({ credentials })`** — hand the client a bearer it does not own. `CredentialSource` is two methods: `token()` answers the current raw bearer or `null`, and `handleExpired()` says whether a `token_expired` is worth retrying. Mutually exclusive with `tokenStore` and `serverKey`, and `auth.login`/`auth.logout` refuse on it for the reason they refuse on a server key: there is no session here to start or end. For an embedder that already holds a session and refreshes it itself — without this it had to impersonate a token store, and a cloud-side `token_expired` arriving while its own clock still read live posted one empty refresh.
+
 ### Changed
 
 - **`BridgeState` gains `low_bandwidth`** (bridge protocol 3): whether the robot's bridge is in its low-bandwidth mode. Required, not optional.
