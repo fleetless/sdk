@@ -1,5 +1,6 @@
 # The suite on every push and every pull request, and the same file a release
-# calls: a release is never verified by a different pipeline than a push.
+# calls: a release is never verified by a different pipeline than a push. The
+# release passes the commit it is about to publish and that commit's version.
 #
 # Hosted runners, because this repository is public — a pull request is a
 # stranger's code, and hosted minutes are free here.
@@ -9,7 +10,17 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # The release calls this file on the commit it is about to publish, with
+  # that commit's version: this run packs the tarball npm receives.
   workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      version:
+        description: X.Y.Z (a release), or X.Y.Z-next.N (a pre-release)
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -20,6 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref || github.sha }}
           # The whole history, not the action's default of one commit.
           # `verify-commit-messages.mjs` is handed `before..sha` and checks
           # that `before` resolves before using it. A depth-1 clone does not
@@ -39,29 +51,31 @@ jobs:
           package-manager-cache: false
       - run: corepack enable && corepack prepare pnpm@11.20.0 --activate
       - run: pnpm install --frozen-lockfile
-      # First, and deliberately. On a tag run this is the cheapest check and
-      # the one guarding the release: a tag whose version disagrees with
-      # package.json fails in seconds, before the suite spends minutes
-      # agreeing with itself.
-      #
-      # It also writes `dist-tag.env`, which travels in the artifact and is
-      # the only thing telling the publish job whether this version goes out
-      # as `latest` or as `next`. On a branch run there is nothing to publish,
-      # so the file says so in a comment: `eval` of it leaves DIST_TAG unset,
-      # and publish refuses by name rather than guessing `latest`.
+      # First, and deliberately, on a release call: the cheapest check
+      # guarding a release. It writes `dist-tag.env`, the only thing telling
+      # publish whether this goes out as `latest` or as `next`. A release's
+      # version is already in package.json (the release PR wrote it), and
+      # verify-version-tag.mjs checks it. A pre-release's version exists
+      # nowhere but here: it is set in this job's package.json, before the
+      # pack, and goes to `next`. On a push or a pull request there is nothing
+      # to publish, and the file says so in a comment — `eval` of it leaves
+      # DIST_TAG unset, and publish refuses by name rather than guessing.
       #
       # `>`, never `| tee`: a pipe would hand this step the pipe's exit
-      # status instead of the check's.
-      #
-      # $GITHUB_REF_TYPE / $GITHUB_REF_NAME come from the runner's own
-      # environment rather than `${{ github.ref_name }}` interpolated into the
-      # script body, so a tag name can never be parsed as shell.
-      - name: version-tag check (tags only)
+      # status instead of the check's. The version comes in through env, not
+      # pasted into the script.
+      - name: the release's version (release calls only)
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            node scripts/verify-version-tag.mjs "$GITHUB_REF_NAME" > dist-tag.env
+          set -euo pipefail
+          if [ -z "$VERSION" ]; then
+            echo '# not a release run: nothing to publish' > dist-tag.env
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-next\.[0-9]+$ ]]; then
+            npm pkg set version="$VERSION"
+            echo 'DIST_TAG=next' > dist-tag.env
           else
-            echo '# not a tag run: nothing to publish' > dist-tag.env
+            node scripts/verify-version-tag.mjs "v$VERSION" > dist-tag.env
           fi
           cat dist-tag.env
       # Which commits this run is about; the script checks their messages for
@@ -73,24 +87,27 @@ jobs:
       #
       # - **branch push** — `github.event.before` is the previous tip, so the
       #   range is exactly what this push added.
-      # - **tag push** — `before` is all-zeros for a new ref, which the script
-      #   reads as "no before-sha". It falls back to `sha~1..sha`: the tagged
-      #   commit alone, because a tag names a commit and not a range.
-      # - **pull request** — the event carries no `before` at all, so the same
-      #   fallback applies, but `github.sha` here is GitHub's synthetic merge
-      #   commit. Its first parent is the base tip, so `sha~1..sha` is that
-      #   merge plus every commit the pull request proposes. Wider than the
-      #   tag case, and the right width: a fork's commits are exactly what
-      #   nobody has read yet.
+      # - **release call** — the event (`workflow_dispatch`) carries no
+      #   `before`, which the script reads as "no before-sha". It falls back
+      #   to `ref~1..ref`: the one commit being released, because a release
+      #   names a commit and not a range.
+      # - **pull request** — the event carries no `before` at all either, so
+      #   the same fallback applies, but `github.sha` here is GitHub's
+      #   synthetic merge commit. Its first parent is the base tip, so
+      #   `sha~1..sha` is that merge plus every commit the pull request
+      #   proposes. Wider than the release case, and the right width: a
+      #   fork's commits are exactly what nobody has read yet.
       #
       # The script prints the range and the count it settled on, so a run that
       # read one commit cannot look like a run that read twenty.
       - run: pnpm run verify:commits
         env:
           CI_COMMIT_BEFORE_SHA: ${{ github.event.before }}
-          CI_COMMIT_SHA: ${{ github.sha }}
+          CI_COMMIT_SHA: ${{ inputs.ref || github.sha }}
       - run: pnpm typecheck
       - run: pnpm test
+      # The release logic's own tests, the shared list every copy must pass.
+      - run: node --test '.github/release/*.test.mjs'
       - run: pnpm build
       - run: pnpm run test:pack
       # The bytes a release publishes, packed here and never again. `npm pack`
