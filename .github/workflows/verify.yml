@@ -116,8 +116,9 @@ jobs:
       # the publish job uploads this file instead of rebuilding, so nothing
       # can differ between what was checked and what ships.
       - run: npm pack --pack-destination .
-      # How the tarball reaches publish: that job downloads this artifact. It
-      # never checks the repository out.
+      # How the tarball reaches publish: that job downloads this artifact.
+      # It also checks the repository out, but only for release.mjs —
+      # nothing there is rebuilt from it.
       - uses: actions/upload-artifact@v4
         with:
           name: release-artifacts

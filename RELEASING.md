@@ -144,24 +144,27 @@ starting a new one, and a version npm already lists is never published
 twice — npm refuses a version twice, so a retry that reached publish once
 cannot republish, only pick up from wherever it stopped.
 
-**A red `publish` job does not mean nothing was published.** The job runs
-`npm publish`, then polls the registry for about two minutes; npm reads from
-a replica that lags a publish, so the lookup can time out on a version that
-landed fine. The job says so itself — worth repeating here, because a red
-run invites exactly one reaction, retry, and the old advice was not to:
-npm refuses to republish an existing version, so a plain `npm publish` retry
-ends in a 403 that reads like a broken run rather than a release that already
-happened. **Run Release again instead**: `npm-state` sees that npm already has
-the version, skips `npm publish`, and goes straight to waiting for the
-registry and asking app-starter to pin it.
+**A red `publish` job does not mean nothing was published.** `npm publish`
+can succeed and the job still die later — most likely inside `npm-wait`
+(`release.mjs`), which polls the registry for up to 20 minutes before giving
+up, because npm's own metadata lists a version before its tarball is served.
+A run that dies there, or before the app-starter dispatch, has already
+published. **Run Release again** rather than `npm publish` by hand: `npm-state`
+sees npm already has the version, skips `npm publish`, and goes straight to
+the wait and the dispatch — nothing is published twice. As long as `main`'s
+`HEAD` still carries the tag this release already created, Release continues
+that exact release. If `main` moved on in the meantime, a fresh press starts
+the *next* version instead, and this one's pin has to be sent by hand:
+dispatch app-starter's `sdk-bump.yml` with the version that never got asked
+for.
 
-> publish may have succeeded; the registry has not served the version yet —
-> run Release again on the same branch/version; it will not publish twice
+On a timeout, `npm-wait` names what it saw:
 
-If the hand check (`npm view @fleetless/sdk@$VERSION`) answers the version
-before Release is re-run, the release is done: move the dist-tag by hand if
-it is wrong (`npm dist-tag add @fleetless/sdk@X.Y.Z latest`) and leave the job
-red.
+> `@fleetless/sdk@X.Y.Z is listed on npm, not served, after 20 minutes`
+
+Before running Release again on that, check `npm view @fleetless/sdk@$VERSION`
+by hand — `listed` there already means the publish happened and only the
+wait timed out.
 
 **A `publish` job that fails on credentials published nothing**, so running
 Release again is safe. There is no token to fix: the job authenticates by
