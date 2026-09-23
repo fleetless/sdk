@@ -5,9 +5,11 @@ procedure. This file is not part of the published package.
 
 **CI runs on GitHub Actions**, in two files.
 `.github/workflows/verify.yml` is the suite, on every push and every pull
-request; `.github/workflows/release.yml` publishes on a release tag and calls
-`verify.yml` first, so a release is never checked by a different pipeline than
-a push. It is the only publish path this repository defines.
+request, and the same file a release calls on the commit it is about to
+publish; `.github/workflows/release.yml` is the **Release** button — it never
+runs on a push — and calls `verify.yml` on that commit, so a release is never
+checked by a different pipeline than a push. It is the only publish path this
+repository defines.
 
 A pull request from a fork — the only kind an outside contributor can open —
 runs `verify` like any other. GitHub holds a first-time contributor's first
@@ -17,11 +19,9 @@ secret in this repository to leak (see
 [CONTRIBUTING.md](CONTRIBUTING.md), which tells the contributor the same
 thing).
 
-The repository is private today; the public one gets created later from a
-swept working tree, not this history as-is. But **every commit here is
-treated as public the moment it's pushed** — `verify:commits` and the
-published-prose sweep enforce that regardless, so nothing internal goes into
-a commit or its message.
+**Every commit here is public the moment it's pushed** —
+`verify:commits` and the published-prose sweep enforce that regardless, so
+nothing internal goes into a commit or its message.
 
 ## Development setup
 
@@ -102,18 +102,22 @@ repository.
 
 ## Releasing
 
-Every version on npm is published by this repository's `release` workflow
-(GitHub Actions) from a release tag. `npm publish` from a working tree is
+Every version on npm is published by this repository's **Release** workflow
+(GitHub Actions), not by a pushed tag. `npm publish` from a working tree is
 refused by a `prepublishOnly` script — a mechanism, not just a rule stated in
 prose. (`publish` is unaffected: it publishes the tarball `verify` packed,
 and npm runs no prepare lifecycle for a tarball argument.)
 
-1. Add the version's entry to `CHANGELOG.md` and set `version` in
-   `package.json` to the same number.
-2. Commit (`chore(release): X.Y.Z`), push, and wait for the branch run's
-   `verify` job to go green (the Actions tab).
-3. `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag run's `verify` job
-   runs again and then `publish`.
+1. Actions tab → **release** → **Run workflow**, on `main`. Leave `bump` at
+   `auto` unless the Conventional Commits since the last tag undercount the
+   change; an override only raises what `auto` would have picked.
+2. `prepare` works out the version and, on a plain release, opens (or
+   reuses) a release PR that turns `CHANGELOG.md`'s `## [Unreleased]` into
+   that version and sets it in `package.json`. The required `verify` check
+   passes it and it merges itself — nothing to review or click.
+3. The merge commit is tagged, `verify.yml` runs again on it and packs the
+   tarball, and `publish` ships exactly that tarball. app-starter is then
+   asked to open the pull request that pins the new version.
 4. Check the registry yourself. The `publish` job already asserts the first
    line; this is the independent look, and the second line is the one that
    says which dist-tag moved.
@@ -127,52 +131,47 @@ and npm runs no prepare lifecycle for a tarball argument.)
    `latest` dist-tag, so after a pre-release publish it answers the *previous*
    stable release and reads as a publish that did not happen.
 
-A pre-release tag — `vX.Y.Z-beta.1`, `vX.Y.Z-rc.2` — publishes under the npm
-dist-tag `next` instead of `latest`. Nothing else about it differs, and it is
-exactly why step 4 names the version.
+**`prerelease`**, tickable from any branch: publishes `X.Y.Z-next.N` under the
+npm dist-tag `next`, for a branch elsewhere that must pin this change before
+it is final. No tag, no release PR, no changelog entry — the version exists
+only in the `package.json` of the job that packs it, and only in the tarball
+it publishes.
+
+**A run that failed can be started again.** An open release PR is reused
+rather than duplicated, a merged release commit is tagged rather than
+re-committed, a tag already on `HEAD` continues that same release rather than
+starting a new one, and a version npm already lists is never published
+twice — npm refuses a version twice, so a retry that reached publish once
+cannot republish, only pick up from wherever it stopped.
 
 **A red `publish` job does not mean nothing was published.** The job runs
 `npm publish`, then polls the registry for about two minutes; npm reads from
 a replica that lags a publish, so the lookup can time out on a version that
 landed fine. The job says so itself — worth repeating here, because a red
-run invites exactly one reaction, retry, and that can't work: npm refuses to
-republish an existing version, so the retry ends in a 403 that reads like a
-broken run rather than a release that already happened.
+run invites exactly one reaction, retry, and the old advice was not to:
+npm refuses to republish an existing version, so a plain `npm publish` retry
+ends in a 403 that reads like a broken run rather than a release that already
+happened. **Run Release again instead**: `npm-state` sees that npm already has
+the version, skips `npm publish`, and goes straight to waiting for the
+registry and asking app-starter to pin it.
 
-> publish may have succeeded; the registry has not served the version yet; do
-> NOT retry this job (npm refuses to republish a version) — check
-> `npm view @fleetless/sdk@$VERSION` by hand
+> publish may have succeeded; the registry has not served the version yet —
+> run Release again on the same branch/version; it will not publish twice
 
-If the hand check answers the version, the release is done: move the dist-tag
-by hand if it is wrong (`npm dist-tag add @fleetless/sdk@X.Y.Z latest`) and
-leave the job red. If it answers nothing after several minutes, the publish
-genuinely did not land and the job can be retried.
+If the hand check (`npm view @fleetless/sdk@$VERSION`) answers the version
+before Release is re-run, the release is done: move the dist-tag by hand if
+it is wrong (`npm dist-tag add @fleetless/sdk@X.Y.Z latest`) and leave the job
+red.
 
-**A `publish` job that fails on credentials published nothing**, so retrying
-it is safe. There is no token to fix: the job authenticates by trusted
-publishing, and the thing that can be wrong is the publisher configured on
-npmjs.com. It is bound to this repository *and to the workflow filename*
-`release.yml` — rename that file and publishing stops until the publisher is
-updated to match. The other way in is `permissions: id-token: write` going
-missing from the job, which the first step of `publish` refuses by name
-rather than let npm fail deep inside the upload with something less obvious.
-
-**The `verify` job refuses a tag whose version disagrees with `package.json`.**
-`scripts/verify-version-tag.mjs` is the one place that rule lives; `verify`
-runs it first on a tag run, so a mistyped tag fails in seconds and `publish`
-never starts (measured on GitHub Actions, run 34336884767:
-`verify-version-tag: tag v0.0.1-probe names 0.0.1-probe but package.json
-says 3.0.2`, publish skipped).
-
-Removing that bad tag is an ordinary git operation on GitHub: nothing here
-configures tag protection, so `git tag -d vX.Y.Z` locally and
-`git push origin :refs/tags/vX.Y.Z` (or `gh api -X DELETE
-repos/fleetless/sdk/git/refs/tags/vX.Y.Z`) remotely both just work — nothing
-refuses the push. If a tag ruleset
-restricting `v*` gets added later (Settings > Rules > Rulesets), deleting a
-tag needs whatever bypass that ruleset grants.
-
-Then fix `package.json` and tag again.
+**A `publish` job that fails on credentials published nothing**, so running
+Release again is safe. There is no token to fix: the job authenticates by
+trusted publishing, and the thing that can be wrong is the publisher
+configured on npmjs.com. It is bound to this repository *and to the workflow
+filename* `release.yml` — rename that file and publishing stops until the
+publisher is updated to match. The other way in is `permissions: id-token:
+write` going missing from the job, which the first step of `publish` refuses
+by name rather than let npm fail deep inside the upload with something less
+obvious.
 
 ### The one-time setting
 

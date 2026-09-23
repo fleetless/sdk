@@ -1,6 +1,8 @@
 # Changelog
 
-All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; the versions follow semver.
+All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; the versions follow semver. A pull request that changes what a consumer sees adds its entry under `## [Unreleased]`; the release renames that heading to the version.
+
+## [Unreleased]
 
 ## [4.0.0] — 2026-09-22
 

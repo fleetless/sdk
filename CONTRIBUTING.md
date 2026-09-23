@@ -93,8 +93,9 @@ tell you what else has to move with it.
 
 **CI runs on GitHub Actions**, in this repository
 (`.github/workflows/verify.yml`) — the suite, on every push and every pull
-request. `release.yml` publishes on a release tag and calls that same file
-first, so a release is never checked by a different pipeline than a push.
+request. `release.yml` (the **Release** button) calls that same file on the
+commit it publishes, so a release is never checked by a different pipeline
+than a push.
 
 **Your pull request is verified, a fork's included** — the same suite, the
 same file. GitHub holds a first-time contributor's first run until a

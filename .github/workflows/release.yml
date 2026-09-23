@@ -1,53 +1,185 @@
-# A vX.Y.Z tag publishes to npm. The suite runs first, from verify.yml — the
-# same file every push runs — and the tarball it packed is the one published:
-# nothing is rebuilt between the check and the upload.
+# Release: this repository's `main`, as the next version, on npm (the
+# per-repository release design of 2026-09-23, in fleetless/fleetless). The
+# file name is part of npm's trusted-publishing binding: rename it and
+# publishing stops until npm is told.
 #
-# **Trusted publishing.** There is no npm token: the job proves who it is
-# with a short-lived OIDC credential, and npm signs a provenance statement
-# linking this version to this commit and this run — shown on the package
-# page, checked by `npm audit signatures`. It needs `id-token: write`,
-# npm >= 11.5.1, node >= 22.14 and a cloud-hosted runner (self-hosted is not
-# supported), and the publisher is configured on npmjs.com against this
-# repository and this filename, release.yml. Renaming this file breaks
-# publishing until the publisher is updated there.
+# Press "Run workflow" on main. The version comes from the Conventional
+# Commits since the last tag (.github/release/release.mjs). A release PR
+# turns CHANGELOG.md's "## [Unreleased]" into that version and sets it in
+# package.json; the required `verify` check passes it and it merges itself.
+# The merge commit is tagged, verify.yml runs again on it and packs the
+# tarball, and exactly that tarball is published — npm never gets bytes the
+# suite did not check. Then app-starter is asked to open the pull request
+# that pins the new version.
+#
+# `prerelease`, from any branch: X.Y.Z-next.N under the dist-tag `next`, for
+# a branch elsewhere that must pin this change before it is final. No tag,
+# no release PR, no changelog: the version exists only in the packed tarball.
+#
+# A run that failed can be started again: an open release PR is reused, a
+# merged release commit is tagged, a tag already on HEAD continues that
+# release, and a version npm already lists is never published twice — npm
+# refuses a version twice, so a retry would fail after the build.
 name: release
 
 on:
-  push:
-    # A coarse gate, not the rule: it keeps a `v-broken` from starting a
-    # release run, and admits `v3.1.0-rc1` because a pre-release is a real
-    # release here. scripts/verify-version-tag.mjs is the actual check — it
-    # decides `latest` vs `next` and fails a tag package.json disagrees with.
-    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
-
-permissions:
-  contents: read
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: auto, from the commits; an override only raises it
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      prerelease:
+        description: publish X.Y.Z-next.N under `next`, from this branch; no tag, no release PR
+        type: boolean
+        default: false
 
 concurrency:
   group: release
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tagged: ${{ steps.version.outputs.tagged }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: the version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [ "$PRERELEASE" = true ]; then
+            echo "version=$(node .github/release/release.mjs prerelease --package @fleetless/sdk --bump "$BUMP")" >> "$GITHUB_OUTPUT"
+            echo "tagged=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "Release runs on main, not $GITHUB_REF (a pre-release runs anywhere)" >&2; exit 1; }
+          git fetch -q origin main
+          [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || { echo "main moved after this run started; run it again" >&2; exit 1; }
+          tag="$(node .github/release/release.mjs tag-at-head)"
+          if [ -n "$tag" ]; then
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+            echo "tagged=true" >> "$GITHUB_OUTPUT"
+            echo "HEAD already carries $tag: continuing that release"
+            exit 0
+          fi
+          version="$(node .github/release/release.mjs next --bump "$BUMP")"
+          # Refused here, on a copy, before a branch exists: an empty
+          # Unreleased is a published version nobody can read the why of.
+          cp CHANGELOG.md "$RUNNER_TEMP/CHANGELOG.md"
+          node .github/release/release.mjs rotate --file "$RUNNER_TEMP/CHANGELOG.md" --version "$version" --date "$(date -u +%F)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tagged=false" >> "$GITHUB_OUTPUT"
+
+  release-commit:
+    needs: prepare
+    if: ${{ !inputs.prerelease }}
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAGGED: ${{ needs.prepare.outputs.tagged }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          # See app-starter's release.yml: a persisted credential would push
+          # the branch as github-actions[bot], and no check would ever run.
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ secrets.FLEETLESS_APP_ID }}
+          private-key: ${{ secrets.FLEETLESS_APP_PRIVATE_KEY }}
+          owner: fleetless
+          repositories: sdk
+          permission-contents: write
+          permission-pull-requests: write
+          permission-checks: read
+      - name: the release commit, through a pull request
+        id: commit
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ "$TAGGED" = true ]; then
+            echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          merged="$(node .github/release/release.mjs release-commit --version "$VERSION")"
+          if [ -n "$merged" ]; then
+            echo "commit=$merged" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          branch="release/$VERSION"
+          number="$(node .github/release/release.mjs release-pr --version "$VERSION" --branch "$branch" --find-only)"
+          if [ -z "$number" ]; then
+            git switch -q -c "$branch"
+            node .github/release/release.mjs rotate --file CHANGELOG.md --version "$VERSION" --date "$(date -u +%F)"
+            npm pkg set version="$VERSION"
+            git -c user.name="fleetless-release[bot]" -c user.email="fleetless-release[bot]@users.noreply.github.com" \
+              commit -q -am "chore(release): $VERSION"
+            auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              git push -q --force origin "HEAD:refs/heads/$branch"
+            number="$(node .github/release/release.mjs release-pr --version "$VERSION" --branch "$branch")"
+          fi
+          echo "release PR #$number"
+          echo "commit=$(node .github/release/release.mjs merge-pr --number "$number")" >> "$GITHUB_OUTPUT"
+
   verify:
+    needs: [prepare, release-commit]
+    # A pre-release skips release-commit; a skipped need would skip this job
+    # too, so the condition says what it means.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (inputs.prerelease || needs.release-commit.result == 'success') }}
     uses: ./.github/workflows/verify.yml
+    with:
+      ref: ${{ needs.release-commit.outputs.commit || github.sha }}
+      version: ${{ needs.prepare.outputs.version }}
 
   publish:
-    needs: verify
+    needs: [prepare, release-commit, verify]
+    if: ${{ !cancelled() && needs.verify.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      COMMIT: ${{ needs.release-commit.outputs.commit || github.sha }}
+      PRERELEASE: ${{ inputs.prerelease }}
     steps:
+      # The repository for release.mjs only: nothing is built here.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-commit.outputs.commit || github.sha }}
+          path: repo
       - uses: actions/download-artifact@v4
         with:
           name: release-artifacts
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-          # Nothing to cache: this job never checks the repository out, it
-          # publishes the tarball verify packed. Off rather than left to
-          # detection, because the one run that exercises this job is a
-          # release, and npm refuses to republish a version.
           package-manager-cache: false
       - name: guard against a missing OIDC token
         run: |
@@ -60,44 +192,56 @@ jobs:
           npm install -g npm@^11.5.1
           node -v
           npm -v
-      - run: |
+      - uses: actions/create-github-app-token@v2
+        id: app
+        if: ${{ !inputs.prerelease }}
+        with:
+          app-id: ${{ secrets.FLEETLESS_APP_ID }}
+          private-key: ${{ secrets.FLEETLESS_APP_PRIVATE_KEY }}
+          owner: fleetless
+          repositories: sdk,app-starter
+          permission-contents: write
+      - name: tag
+        if: ${{ !inputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: node repo/.github/release/release.mjs create-tag --version "$VERSION" --sha "$COMMIT"
+      - name: publish, unless npm already has it
+        run: |
+          set -euo pipefail
           eval "$(cat dist-tag.env)"
           if [ -z "${DIST_TAG:-}" ]; then
-            echo "FATAL: dist-tag.env from verify carries no DIST_TAG. verify only writes one on a tag run; this job should not have run." >&2
+            echo "FATAL: dist-tag.env from verify carries no DIST_TAG; verify writes one only on a release call." >&2
             exit 1
           fi
-          echo "DIST_TAG=$DIST_TAG" >> "$GITHUB_ENV"
-      - run: |
           set -- fleetless-sdk-*.tgz
           if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
             echo "FATAL: expected exactly one packed tarball from verify, found: $*" >&2
             exit 1
           fi
-          echo "TARBALL=$1" >> "$GITHUB_ENV"
-      - run: echo "publishing $TARBALL to dist-tag $DIST_TAG by trusted publishing"
-      # No .npmrc and no token: npm reads the job's OIDC credential, and
-      # generates the provenance attestation itself for a public package from
-      # a public repository.
-      - run: npm publish "$TARBALL" --access public --tag "$DIST_TAG"
-      # The registry, not the exit code, is the evidence that it landed.
-      - run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # 90 x 10s, and both numbers are measured. On 2026-09-16 the
-          # registry served contracts@1.0.6 two minutes after publish and
-          # sdk@3.0.3 ten minutes after -- both real releases, both with
-          # provenance already in the transparency log, and a twelve-lookup
-          # budget reported red on both. npm's own notice says "may take a
-          # few minutes"; fifteen covers the slower one with room to spare,
-          # and a hosted runner waiting is free on a public repository.
-          for attempt in $(seq 1 90); do
-            seen=$(npm view "@fleetless/sdk@$VERSION" version 2>/dev/null || true)
-            [ "$seen" = "$VERSION" ] && break
-            echo "npm does not report $VERSION yet (attempt $attempt of 90, saw '${seen:-nothing}'); waiting"
-            sleep 10
-          done
-          if [ "$seen" != "$VERSION" ]; then
-            echo "FATAL: npm publish exited 0 but the registry does not serve @fleetless/sdk@$VERSION after 90 lookups over ~15 minutes." >&2
-            echo "publish may have succeeded; do NOT retry this job (npm refuses to republish a version) — check \`npm view @fleetless/sdk@$VERSION\` by hand" >&2
-            exit 1
+          state="$(node repo/.github/release/release.mjs npm-state --package @fleetless/sdk --version "$VERSION")"
+          if [ "$state" = absent ]; then
+            echo "publishing $1 to dist-tag $DIST_TAG by trusted publishing"
+            npm publish "$1" --access public --tag "$DIST_TAG"
+          else
+            echo "npm already has @fleetless/sdk@$VERSION ($state): a publish happened, and npm refuses a version twice"
           fi
-          echo "npm has @fleetless/sdk@$VERSION"
+          node repo/.github/release/release.mjs npm-wait --package @fleetless/sdk --version "$VERSION"
+      - name: ask app-starter to pin it
+        if: ${{ !inputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: node repo/.github/release/release.mjs dispatch --component sdk --version "$VERSION" --commit "$COMMIT"
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo "### @fleetless/sdk $VERSION — ${{ job.status }}"
+            echo
+            echo "- commit: \`$COMMIT\`"
+            if [ "$PRERELEASE" = true ]; then
+              echo "- a pre-release under \`next\`: no tag, no changelog entry"
+            else
+              echo "- tag v$VERSION; app-starter was asked to open the pull request that pins it"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
