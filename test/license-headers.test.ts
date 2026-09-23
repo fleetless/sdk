@@ -40,6 +40,19 @@ import { describe, expect, it } from 'vitest'
 const HEADER = '// SPDX-License-Identifier: MIT'
 const ROOT = new URL('..', import.meta.url).pathname
 
+/**
+ * `.github/release/` is the shared release library (`release.mjs`,
+ * `release.test.mjs`): identical, byte for byte, in every repository with a
+ * Release button, and pinned there by sha256 rather than by the package's
+ * own licence. It is published under Apache-2.0 everywhere it lives, this
+ * copy included, so its header names that — not MIT. Nothing else is
+ * exempt: a file outside this one directory still needs the header the
+ * package is actually published under.
+ */
+const LIBRARY_DIR = '.github/release/'
+const LIBRARY_HEADER = '// SPDX-License-Identifier: Apache-2.0'
+const expectedHeader = (f: string) => (f.startsWith(LIBRARY_DIR) ? LIBRARY_HEADER : HEADER)
+
 /** Generated. `dist/` is emitted by `tsup` and stamped by its banner. */
 const GENERATED = ['dist/']
 
@@ -120,7 +133,7 @@ describe('SPDX headers', () => {
     const missing = sources.filter((f) => {
       const lines = readFileSync(join(ROOT, f), 'utf8').split('\n')
       const at = lines[0].startsWith('#!') ? 1 : 0
-      return lines[at] !== HEADER
+      return lines[at] !== expectedHeader(f)
     })
     expect(missing).toEqual([])
   })
@@ -132,7 +145,7 @@ describe('SPDX headers', () => {
     // sit above the licence.
     const offset = sources
       .map((f) => [f, readFileSync(join(ROOT, f), 'utf8').split('\n')] as const)
-      .filter(([, lines]) => lines[0] !== HEADER)
+      .filter(([f, lines]) => lines[0] !== expectedHeader(f))
     for (const [f, lines] of offset) {
       expect(lines[0].startsWith('#!'), `${f}: line 1 is neither the header nor a shebang`).toBe(true)
     }
