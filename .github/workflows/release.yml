@@ -157,6 +157,12 @@ jobs:
       ref: ${{ needs.release-commit.outputs.commit || github.sha }}
       version: ${{ needs.prepare.outputs.version }}
 
+  # **Trusted publishing.** There is no npm token: the job proves who it is
+  # with a short-lived OIDC credential, and npm signs a provenance statement
+  # linking this version to this commit and this run — shown on the package
+  # page, checked by `npm audit signatures`. It needs id-token: write,
+  # npm >= 11.5.1, node >= 22.14 and a cloud-hosted runner (self-hosted is
+  # not supported).
   publish:
     needs: [prepare, release-commit, verify]
     if: ${{ !cancelled() && needs.verify.result == 'success' }}
@@ -180,6 +186,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
+          # Nothing to cache: the checkout above is for release.mjs only,
+          # and this job publishes the tarball verify already packed. Off
+          # rather than left to detection, because the one run that
+          # exercises this job is a release, and npm refuses to republish a
+          # version.
           package-manager-cache: false
       - name: guard against a missing OIDC token
         run: |
@@ -206,6 +217,12 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: node repo/.github/release/release.mjs create-tag --version "$VERSION" --sha "$COMMIT"
+      # No .npmrc and no token: npm reads the job's OIDC credential, and
+      # generates the provenance attestation itself for a public package
+      # from a public repository. The registry, not npm publish's exit
+      # code, is the evidence it landed — npm-wait (release.mjs) polls
+      # until the tarball serves, for the two-clock reason its own
+      # npmState comment gives.
       - name: publish, unless npm already has it
         run: |
           set -euo pipefail

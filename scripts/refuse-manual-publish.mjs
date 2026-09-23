@@ -31,9 +31,10 @@ console.error(`
   the tarball its \`verify\` job packed after the typecheck, the suite and
   \`pnpm run test:pack\`. See "Releasing" in RELEASING.md.
 
-    1. add the version's entry to CHANGELOG.md and bump package.json
-    2. commit, push, let \`verify\` go green
-    3. tag vX.Y.Z and push the tag
+    Actions tab -> release -> Run workflow, on main. The release PR rotates
+    CHANGELOG.md and bumps package.json for you and merges itself once
+    \`verify\` passes; tick \`prerelease\` to ship X.Y.Z-next.N under \`next\`
+    from any branch instead, with no PR and no changelog entry.
 
   If you are the workflow and you are seeing this, you are publishing a
   directory rather than the packed tarball, and the tarball is what the checks

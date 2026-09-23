@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
 /**
- * The one place the tag ↔ version rule lives. Given a git tag (CI_COMMIT_TAG
- * or argv[2]) it fails unless package.json's version equals the tag without
- * its leading `v`, and prints the npm dist-tag the publish job must use:
- * `latest` for X.Y.Z, `next` for a pre-release (X.Y.Z-beta.1 and the like).
- * Output is one line, `DIST_TAG=<latest|next>`, so a shell can `eval` it.
+ * The one place the version rule lives. verify.yml's release call passes it
+ * `v$VERSION` as argv[2] — the version the release PR already wrote into
+ * package.json — and it fails unless the two agree, printing the npm
+ * dist-tag the publish job must use: `latest` for X.Y.Z, `next` for a
+ * pre-release (X.Y.Z-beta.1 and the like; a `-next.N` pre-release from the
+ * `prerelease` input never reaches this script — its version exists only in
+ * the job's package.json). Output is one line, `DIST_TAG=<latest|next>`, so
+ * a shell can `eval` it. CI_COMMIT_TAG is the same argument for anyone
+ * running this by hand against an actual tag.
  *
- * Exit codes are distinct on purpose: 2 means "nothing to check" (no tag was
- * handed over at all, which is a caller bug), 1 means "the tag is wrong".
+ * Exit codes are distinct on purpose: 2 means "nothing to check" (no
+ * version was handed over at all, which is a caller bug), 1 means "the
+ * version is wrong".
  */
 import { readFileSync } from 'node:fs'
 
