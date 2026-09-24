@@ -16,10 +16,11 @@
 # a branch elsewhere that must pin this change before it is final. No tag,
 # no release PR, no changelog: the version exists only in the packed tarball.
 #
-# A run that failed can be started again: an open release PR is reused, a
-# merged release commit is tagged, a tag already on HEAD continues that
-# release, and a version npm already lists is never published twice — npm
-# refuses a version twice, so a retry would fail after the build.
+# A run that failed can be started again: an open release PR is reused and
+# rebuilt on the current `main`, a merged release commit is tagged, a tag
+# already on HEAD continues that release, and a version npm already lists is
+# never published twice — npm refuses a version twice, so a retry would fail
+# after the build.
 name: release
 
 on:
@@ -64,7 +65,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$PRERELEASE" = true ]; then
-            echo "version=$(node .github/release/release.mjs prerelease --package @fleetless/sdk --bump "$BUMP")" >> "$GITHUB_OUTPUT"
+            # Assign, then echo: under `set -e`, a command substitution that
+            # fails inside `echo` leaves echo's own exit status, which is 0.
+            version="$(node .github/release/release.mjs prerelease --package @fleetless/sdk --bump "$BUMP")"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
             echo "tagged=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -130,22 +134,30 @@ jobs:
             echo "commit=$merged" >> "$GITHUB_OUTPUT"; exit 0
           fi
           branch="release/$VERSION"
-          number="$(node .github/release/release.mjs release-pr --version "$VERSION" --branch "$branch" --find-only)"
-          if [ -z "$number" ]; then
-            git switch -q -c "$branch"
-            node .github/release/release.mjs rotate --file CHANGELOG.md --version "$VERSION" --date "$(date -u +%F)"
-            npm pkg set version="$VERSION"
-            git -c user.name="fleetless-release[bot]" -c user.email="fleetless-release[bot]@users.noreply.github.com" \
-              commit -q -am "chore(release): $VERSION"
-            auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-            GIT_CONFIG_COUNT=1 \
-            GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
-            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-              git push -q --force origin "HEAD:refs/heads/$branch"
-            number="$(node .github/release/release.mjs release-pr --version "$VERSION" --branch "$branch")"
-          fi
+          # Past the two early exits the branch is rebuilt every time on this
+          # job's HEAD, which is current main. A failed run leaves a release PR
+          # that main soon moves past, or one carrying a red check, and
+          # merge-pr refuses both for ever -- reusing such a PR untouched makes
+          # every later run fail the same way. The force-push puts it back on
+          # today's main and restarts its required check.
+          git switch -q -c "$branch"
+          node .github/release/release.mjs rotate --file CHANGELOG.md --version "$VERSION" --date "$(date -u +%F)"
+          npm pkg set version="$VERSION"
+          git -c user.name="fleetless-release[bot]" -c user.email="fleetless-release[bot]@users.noreply.github.com" \
+            commit -q -am "chore(release): $VERSION"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push -q --force origin "HEAD:refs/heads/$branch"
+          # Without --find-only this answers the open PR's number when there is
+          # one, and opens a PR when there is not.
+          number="$(node .github/release/release.mjs release-pr --version "$VERSION" --branch "$branch")"
           echo "release PR #$number"
-          echo "commit=$(node .github/release/release.mjs merge-pr --number "$number")" >> "$GITHUB_OUTPUT"
+          # Assign, then echo: a failing substitution inside `echo` leaves
+          # echo's own exit status, which is 0.
+          commit="$(node .github/release/release.mjs merge-pr --number "$number")"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
   verify:
     needs: [prepare, release-commit]
@@ -154,7 +166,12 @@ jobs:
     if: ${{ !cancelled() && needs.prepare.result == 'success' && (inputs.prerelease || needs.release-commit.result == 'success') }}
     uses: ./.github/workflows/verify.yml
     with:
-      ref: ${{ needs.release-commit.outputs.commit || github.sha }}
+      # `github.sha` belongs to the pre-release alone, which has no release
+      # commit. On a release, `||` would have fallen back to it whenever
+      # release-commit produced nothing -- verifying and publishing the branch
+      # tip instead of the merged release commit, silently. The prerelease flag
+      # decides which one applies; an empty commit on a release now fails.
+      ref: ${{ inputs.prerelease && github.sha || needs.release-commit.outputs.commit }}
       version: ${{ needs.prepare.outputs.version }}
 
   # **Trusted publishing.** There is no npm token: the job proves who it is
@@ -172,13 +189,16 @@ jobs:
       id-token: write
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
-      COMMIT: ${{ needs.release-commit.outputs.commit || github.sha }}
+      # As in the verify job: `github.sha` is the pre-release's commit, never a
+      # release's. A `||` fallback would tag and publish the branch tip if
+      # release-commit ever answered nothing.
+      COMMIT: ${{ inputs.prerelease && github.sha || needs.release-commit.outputs.commit }}
       PRERELEASE: ${{ inputs.prerelease }}
     steps:
       # The repository for release.mjs only: nothing is built here.
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.release-commit.outputs.commit || github.sha }}
+          ref: ${{ inputs.prerelease && github.sha || needs.release-commit.outputs.commit }}
           path: repo
       - uses: actions/download-artifact@v4
         with:
@@ -224,6 +244,7 @@ jobs:
       # until the tarball serves, for the two-clock reason its own
       # npmState comment gives.
       - name: publish, unless npm already has it
+        id: publish
         run: |
           set -euo pipefail
           eval "$(cat dist-tag.env)"
@@ -244,21 +265,37 @@ jobs:
             echo "npm already has @fleetless/sdk@$VERSION ($state): a publish happened, and npm refuses a version twice"
           fi
           node repo/.github/release/release.mjs npm-wait --package @fleetless/sdk --version "$VERSION"
+          echo "done=true" >> "$GITHUB_OUTPUT"
       - name: ask app-starter to pin it
+        id: dispatch
         if: ${{ !inputs.prerelease }}
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-        run: node repo/.github/release/release.mjs dispatch --component sdk --version "$VERSION" --commit "$COMMIT"
+        run: |
+          set -euo pipefail
+          node repo/.github/release/release.mjs dispatch --component sdk --version "$VERSION" --commit "$COMMIT"
+          echo "done=true" >> "$GITHUB_OUTPUT"
       - name: summary
         if: always()
+        env:
+          # The summary runs under `if: always()`, so it reports what the steps
+          # before it reached rather than asserting it. The three states are
+          # genuinely different: nothing published, published but nobody told
+          # app-starter (which a person then has to dispatch), and both.
+          PUBLISHED: ${{ steps.publish.outputs.done }}
+          DISPATCHED: ${{ steps.dispatch.outputs.done }}
         run: |
           {
             echo "### @fleetless/sdk $VERSION — ${{ job.status }}"
             echo
             echo "- commit: \`$COMMIT\`"
-            if [ "$PRERELEASE" = true ]; then
+            if [ "$PUBLISHED" != true ]; then
+              echo "- not on npm: the run did not finish the publish step"
+            elif [ "$PRERELEASE" = true ]; then
               echo "- a pre-release under \`next\`: no tag, no changelog entry"
-            else
+            elif [ "$DISPATCHED" = true ]; then
               echo "- tag v$VERSION; app-starter was asked to open the pull request that pins it"
+            else
+              echo "- npm serves $VERSION, but app-starter was not asked to pin it: dispatch it by hand"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
