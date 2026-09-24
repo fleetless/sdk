@@ -67,8 +67,17 @@ jobs:
       - name: the release's version (release calls only)
         env:
           VERSION: ${{ inputs.version }}
+          REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
+          # A release call names the commit it is about to publish. An empty
+          # ref means the caller lost it, and the checkout above has quietly
+          # fallen back to this branch's tip -- a different tree from the one
+          # being released, packed and published as if it were it.
+          if [ -n "$VERSION" ] && [ -z "$REF" ]; then
+            echo "a release call without a commit" >&2
+            exit 1
+          fi
           if [ -z "$VERSION" ]; then
             echo '# not a release run: nothing to publish' > dist-tag.env
           elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-next\.[0-9]+$ ]]; then
