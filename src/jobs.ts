@@ -13,7 +13,7 @@ import { pathSegment, type HttpClient } from './http.js'
 export interface JobHistoryOptions {
   /** Only runs of this action or service. */
   slug?: string
-  /** Only runs in this state: `running`, `succeeded`, `failed`, `cancelled` or `lost`. */
+  /** Only runs in this state: `running`, `unknown`, `succeeded`, `failed`, `cancelled` or `lost`. */
   state?: JobState
   /** Only `action` runs, or only `service` runs. */
   kind?: 'action' | 'service'
