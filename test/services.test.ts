@@ -53,6 +53,7 @@ function jobWith(state: Job['state'], overrides: Partial<Job> = {}): Job {
     robot_id: 'robot1',
     slug: 'get-status',
     state,
+    origin: 'fleetless',
     started_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     seq: 1,
@@ -222,6 +223,53 @@ describe('services.call', () => {
 
     await expect(promise).rejects.toMatchObject({ code: 'busy' })
     expect(currentSocket().sent.filter((f) => f.type === 'subscribe')).toHaveLength(0)
+  })
+
+  it('does not resolve on an unknown job event — unknown is a non-final "we do not know yet", not a terminal state', async () => {
+    // contracts 5.0.0-next.1 added `unknown`: the cloud reports it instead of
+    // guessing `lost` on a mere offline robot or a silent one, and it later
+    // resolves to `running` or a real terminal state. A wait-for-result must
+    // keep waiting through it — this pins `isTerminal`'s exclusion list as a
+    // promise, not an accident of construction.
+    const client = loggedInClient()
+    const promise = client.services.call('robot1', 'get-status', {})
+    await authenticate()
+    const requestId = currentSocket().sent.find((f) => f.type === 'invoke')?.request_id
+
+    currentSocket().simulateMessage({
+      type: 'command_result',
+      request_id: requestId,
+      ok: true,
+      job: jobWith('running'),
+      code: null,
+      message: null,
+    })
+    await flush()
+
+    currentSocket().simulateMessage({
+      type: 'job',
+      robot_id: 'robot1',
+      slug: 'get-status',
+      job: jobWith('unknown'),
+      feedback: null,
+      progress: null,
+      timestamp_ms: 1,
+    })
+
+    const stillPending = Promise.race([promise.then(() => 'settled').catch(() => 'settled'), Promise.resolve('pending')])
+    await expect(stillPending).resolves.toBe('pending')
+
+    currentSocket().simulateMessage({
+      type: 'job',
+      robot_id: 'robot1',
+      slug: 'get-status',
+      job: jobWith('succeeded', { result: { battery: 5 } }),
+      feedback: null,
+      progress: null,
+      timestamp_ms: 2,
+    })
+
+    await expect(promise).resolves.toEqual({ battery: 5 })
   })
 
   it('rejects lost as a job outcome, distinct from a timeout', async () => {
