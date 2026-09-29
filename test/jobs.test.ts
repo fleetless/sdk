@@ -27,6 +27,7 @@ const RUNNING_JOB: Job = {
   robot_id: 'robot1',
   slug: 'dock',
   state: 'running',
+  origin: 'fleetless',
   started_at: '2026-08-12T10:00:00.000Z',
   updated_at: '2026-08-12T10:00:00.000Z',
   seq: 1,
