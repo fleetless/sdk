@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [4.1.0] — 2026-09-30
+
 Built against `@fleetless/contracts` 5.0.0. Two changes to `Job` a consumer's code sees, so the next release is a major.
 
 ### Added
