@@ -1,6 +1,19 @@
 // SPDX-License-Identifier: MIT
-import type { Job, JobRunListResponse, JobState, RobotJobsResponse } from '@fleetless/contracts'
+import type { Job, JobOrigin as WireJobOrigin, JobRunListResponse, JobState, RobotJobsResponse } from '@fleetless/contracts'
 import { pathSegment, type HttpClient } from './http.js'
+
+/**
+ * Who started a job: `fleetless` for every job the cloud minted from an
+ * invocation, `external` for a goal the bridge found active on a published
+ * action without having sent it. An external job has no parameters and no
+ * starter (ROS 2 publishes neither) and is never in `jobs.history`. The type
+ * of `Job.origin`, which every job carries.
+ *
+ * The wire shape is contracts' `jobOrigin`; the alias exists so the reference
+ * can describe it — a JSDoc on an `export type { … } from` statement does not
+ * survive bundling.
+ */
+export type JobOrigin = WireJobOrigin
 
 /**
  * The filters `jobs.history` reads. Every field is optional; the wire names

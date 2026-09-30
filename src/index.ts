@@ -53,7 +53,7 @@ export type { ServicesApi } from './services.js'
 export type { PublishersApi } from './publishers.js'
 export type { CamerasApi, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession } from './cameras.js'
 export type { JobSubscription, JobSubscriptionHandlers } from './job-subscriptions.js'
-export type { JobsApi, JobHistoryOptions } from './jobs.js'
+export type { JobsApi, JobHistoryOptions, JobOrigin } from './jobs.js'
 export type { RobotsApi, McpExposure, McpCapabilities } from './robots.js'
 export type { SendCommandOptions, InvokeOptions } from './commands.js'
 export type {
@@ -131,18 +131,6 @@ export type {
  * and that section goes silently blank.
  */
 export type { ClientOidcErrorCode } from '@fleetless/contracts'
-
-/**
- * Who started a job: `fleetless` for every job the cloud minted from an
- * invocation, `external` for a goal the bridge found active on a published
- * action without having sent it. An external job has no parameters and no
- * starter (ROS 2 publishes neither) and is never in `jobs.history`. The type
- * of `Job.origin`, which every job carries.
- *
- * On its own line, with a JSDoc, for the reason `ClientOidcErrorCode` above
- * is: there is no JSON Schema artifact behind it for the docs site to alias.
- */
-export type { JobOrigin } from '@fleetless/contracts'
 
 // `error.details` of a `parameter_invalid` refusal (§4.4) is exactly this
 // shape — re-exported as a runtime schema, not just a type, so a caller
