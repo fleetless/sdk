@@ -306,7 +306,7 @@ try {
       "import { createClient, FleetlessError, InMemoryTokenStore, parameterInvalidDetails } from '@fleetless/sdk'",
       "import type { DatapointValue, DatapointEvent, ClientIdentity, TokenStore, StoredSession, ParameterInvalidDetails } from '@fleetless/sdk'",
       "import type { CameraDescriptor, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession } from '@fleetless/sdk'",
-      "import type { Job, AssetListResponse, Asset, UrdfCompleteness, AssetBytes, MeshLoaderDelegate } from '@fleetless/sdk'",
+      "import type { Job, JobState, JobOrigin, AssetListResponse, Asset, UrdfCompleteness, AssetBytes, MeshLoaderDelegate } from '@fleetless/sdk'",
       "import type { JobEvent, JobSubscription, JobSubscriptionHandlers } from '@fleetless/sdk'",
       "import type { HistoryOptions, HistoryAggregation, HistorySamplesResponse, HistoryBucketsResponse } from '@fleetless/sdk'",
       "import type { UrdfSceneManager, PrepareUrdfSceneOptions, UrdfSceneResources } from '@fleetless/sdk'",
