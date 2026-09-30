@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientIdentity, Job } from '@fleetless/contracts'
-import { createClient, InMemoryTokenStore } from '../src/index.js'
+import { createClient, FleetlessError, InMemoryTokenStore } from '../src/index.js'
 import { FakeWebSocket } from './fake-websocket.js'
 
 const IDENTITY: ClientIdentity = {
@@ -199,6 +199,45 @@ describe('actions.cancel', () => {
     // Exactly the one frame above — a caller who named an id that turned out
     // stale gets that fact, not a silent retry against the slug.
     expect(currentSocket().sent.filter((f) => f.type === 'cancel')).toHaveLength(1)
+  })
+
+  // The cloud answers a cancel from the action server's
+  // CancelGoal return codes. A refusal (ERROR_REJECTED) is a rejection with
+  // every goal the cancel reached in details.goals — never a resolved cancel.
+  it('rejects cancel_rejected as a FleetlessError carrying details.goals, never resolving as if the cancel succeeded', async () => {
+    const client = loggedInClient()
+    const promise = client.actions.cancel('robot1', 'dock', 'job1')
+    await authenticate()
+
+    const goals = [
+      { job_id: 'job1', goal_id: 'goal-a', return_code: 1 },
+      { job_id: 'job2', goal_id: 'goal-b', return_code: null },
+    ]
+    const sent = currentSocket().sent.find((f) => f.type === 'cancel')
+    currentSocket().simulateMessage({
+      type: 'command_result',
+      request_id: sent?.request_id,
+      ok: false,
+      job: null,
+      code: 'cancel_rejected',
+      message: "The action server on 'dock' refused to cancel. Whether the goal ends is what its job reports next.",
+      details: { goals },
+    })
+
+    const error = await promise.catch((thrown: unknown) => thrown)
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect(error).toMatchObject({ code: 'cancel_rejected', details: { goals } })
+  })
+
+  it('resolves an accepted cancel with the job still running — the end arrives later as the job\'s own update', async () => {
+    const client = loggedInClient()
+    const promise = client.actions.cancel('robot1', 'dock', 'job1')
+    await authenticate()
+
+    const sent = currentSocket().sent.find((f) => f.type === 'cancel')
+    currentSocket().simulateMessage({ type: 'command_result', request_id: sent?.request_id, ok: true, job: RUNNING_JOB })
+
+    await expect(promise).resolves.toMatchObject({ id: 'job1', state: 'running' })
   })
 
   it('rejects invalid_option (not a server round trip) when the third argument is an object — the options-as-third-argument mistake', async () => {
