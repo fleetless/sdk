@@ -44,6 +44,25 @@ export interface ActionsApi {
    * was nothing there", and "I stopped a job that started after I last
    * looked" are three different outcomes a discarded result cannot tell
    * apart.
+   *
+   * **Resolving means the robot's action server accepted the cancel, not
+   * that the goal ended.** The returned job is usually still `running`; how
+   * it ends arrives as its own update (`subscribe`). The platform answers
+   * from the action server's `CancelGoal` return codes, so a cancel can
+   * also reject with:
+   * - `cancel_rejected` — the server refused (`ERROR_REJECTED`) and the goal
+   *   keeps running unless its job later says otherwise. `error.details.goals`
+   *   lists every goal the cancel reached as `{ job_id, goal_id, return_code }`
+   *   (`0` accepted, `1` rejected, `2` unknown goal, `3` already ended, `null`
+   *   when that goal's server did not answer).
+   * - `bridge_timeout` — the robot's bridge did not answer in time; whether
+   *   the cancel reached the server is unknown.
+   * - the bridge's own code when it could not ask at all (e.g.
+   *   `unknown_slug`, `action_server_lost`), `not_cancellable` for a service,
+   *   and `robot_offline`.
+   *
+   * Cancelling an `unknown` job cancels every `external` goal on its action,
+   * never another of the platform's own jobs.
    */
   cancel(robotId: string, slug: string, jobId?: string | null, options?: SendCommandOptions): Promise<Job | null>
   /**
