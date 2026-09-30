@@ -10,6 +10,10 @@ Built against `@fleetless/contracts` 5.1.0 (pinned to its pre-release `5.1.0-nex
 
 - **`cancelRejectedDetails`, `CANCEL_RETURN_CODES`, `CancelRejectedDetails` and `CancelReturnCode`** are re-exported, so a caller reads a `cancel_rejected` refusal without depending on `@fleetless/contracts`: `cancelRejectedDetails.parse(error.details).goals`, each goal's `return_code` compared against `CANCEL_RETURN_CODES` (`none`, `rejected`, `unknown_goal_id`, `goal_terminated`), or `null` when that goal's server did not answer.
 
+### Fixed
+
+- **`JobOrigin` carries its description in the published types.** It was re-exported as a statement whose JSDoc the bundle dropped, so an editor showed it undescribed; it is now declared as an alias, the way `McpExposure` is.
+
 ## [4.1.0] — 2026-09-30
 
 Built against `@fleetless/contracts` 5.0.0. Two changes to `Job` a consumer's code sees, so the next release is a major.
