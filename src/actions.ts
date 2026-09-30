@@ -1,8 +1,20 @@
 // SPDX-License-Identifier: MIT
-import type { Job } from '@fleetless/contracts'
+import type { CancelReturnCode as WireCancelReturnCode, Job } from '@fleetless/contracts'
 import type { CommandTransport, InvokeOptions, SendCommandOptions } from './commands.js'
 import { FleetlessError } from './errors.js'
 import type { JobSubscription, JobSubscriptionHandlers, JobSubscriptions } from './job-subscriptions.js'
+
+/**
+ * One goal's answer to a cancel: the ROS 2 `CancelGoal` return code its action
+ * server sent — `0` accepted (`CANCEL_RETURN_CODES.none`), `1` refused
+ * (`rejected`), `2` unknown goal (`unknown_goal_id`), `3` already ended
+ * (`goal_terminated`). The type of `return_code` in `CancelRejectedDetails`,
+ * where it is `null` when that goal's server did not answer. The wire shape is
+ * contracts' `cancelReturnCode`; the alias exists so the reference can
+ * describe it — a JSDoc on an `export type { … } from` statement does not
+ * survive bundling.
+ */
+export type CancelReturnCode = WireCancelReturnCode
 
 /**
  * Long-running work on a robot, reachable as `client.actions`. An action is
@@ -51,10 +63,12 @@ export interface ActionsApi {
    * from the action server's `CancelGoal` return codes, so a cancel can
    * also reject with:
    * - `cancel_rejected` — the server refused (`ERROR_REJECTED`) and the goal
-   *   keeps running unless its job later says otherwise. `error.details.goals`
-   *   lists every goal the cancel reached as `{ job_id, goal_id, return_code }`
-   *   (`0` accepted, `1` rejected, `2` unknown goal, `3` already ended, `null`
-   *   when that goal's server did not answer).
+   *   keeps running unless its job later says otherwise.
+   *   `cancelRejectedDetails.parse(error.details).goals` lists every goal the
+   *   cancel reached as `{ job_id, goal_id, return_code }`; compare
+   *   `return_code` against `CANCEL_RETURN_CODES`: `none` (`0`, accepted),
+   *   `rejected` (`1`), `unknown_goal_id` (`2`), `goal_terminated` (`3`,
+   *   already ended), or `null` when that goal's server did not answer.
    * - `bridge_timeout` — the robot's bridge did not answer in time; whether
    *   the cancel reached the server is unknown.
    * - the bridge's own code when it could not ask at all (e.g.
