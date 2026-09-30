@@ -4,7 +4,7 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
-Built against `@fleetless/contracts` 5.0.0 (pinned to its pre-release `5.0.0-next.1` until that ships). Two changes to `Job` a consumer's code sees, so the next release is a major.
+Built against `@fleetless/contracts` 5.0.0 (pinned to its pre-release `5.0.0-next.2` until that ships). Two changes to `Job` a consumer's code sees, so the next release is a major.
 
 ### Added
 
