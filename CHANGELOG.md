@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [4.2.0] — 2026-09-30
+
 Built against `@fleetless/contracts` 5.1.0.
 
 ### Added
