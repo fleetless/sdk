@@ -4,6 +4,17 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+Built against `@fleetless/contracts` 5.0.0 (pinned to its pre-release `5.0.0-next.1` until that ships). Two changes to `Job` a consumer's code sees, so the next release is a major.
+
+### Added
+
+- **`JobOrigin`** is re-exported: the type of `Job.origin`.
+
+### Changed
+
+- **`Job.origin` is required**: `fleetless` for a job the cloud minted from an invocation, `external` for a goal the bridge found running on a published action without having sent it — started by anything else on the robot's ROS graph, or its own goal after the bridge lost the mapping. An external job has no parameters and no starter, and never appears in `jobs.history`. A hand-built `Job` (a test fixture, a mock) now needs the field.
+- **`JobState` gains `unknown`**: the cloud cannot currently say whether the job is still running — the robot went offline, or its bridge did not report in time. Not terminal: only the robot's bridge moves the job on, to `running` or to how it ended. `lost` is now final. An exhaustive `switch` over `JobState` needs the new case; `services.call` keeps waiting through `unknown`, and `jobs.history` takes `state: 'unknown'`.
+
 ## [4.0.0] — 2026-09-22
 
 ### Added
