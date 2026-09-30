@@ -132,6 +132,18 @@ export type {
  */
 export type { ClientOidcErrorCode } from '@fleetless/contracts'
 
+/**
+ * Who started a job: `fleetless` for every job the cloud minted from an
+ * invocation, `external` for a goal the bridge found active on a published
+ * action without having sent it. An external job has no parameters and no
+ * starter (ROS 2 publishes neither) and is never in `jobs.history`. The type
+ * of `Job.origin`, which every job carries.
+ *
+ * On its own line, with a JSDoc, for the reason `ClientOidcErrorCode` above
+ * is: there is no JSON Schema artifact behind it for the docs site to alias.
+ */
+export type { JobOrigin } from '@fleetless/contracts'
+
 // `error.details` of a `parameter_invalid` refusal (§4.4) is exactly this
 // shape — re-exported as a runtime schema, not just a type, so a caller
 // parses it (`parameterInvalidDetails.parse(error.details)`) instead of

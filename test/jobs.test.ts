@@ -4,6 +4,7 @@ import type { Job, JobRunListResponse } from '@fleetless/contracts'
 import { HttpClient, noCredentials } from '../src/http.js'
 import { createJobsApi } from '../src/jobs.js'
 import { FleetlessError } from '../src/errors.js'
+import type { Job as PublicJob, JobOrigin } from '../src/index.js'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -137,5 +138,15 @@ describe('jobs.history', () => {
   it('rejects capability_required as a FleetlessError, naming the switch to flip', async () => {
     const fetchImpl = fakeFetch(async () => errorResponse('capability_required', 'The role lacks action_history.', 403))
     await expect(client(fetchImpl as unknown as typeof fetch).history('robot1')).rejects.toMatchObject({ code: 'capability_required' })
+  })
+})
+
+// `Job.origin` is required since contracts 5 — a consumer switching over it
+// names the type from this package, not from `@fleetless/contracts`.
+describe('JobOrigin', () => {
+  it('is re-exported and is the type of Job.origin', () => {
+    const origins: JobOrigin[] = ['fleetless', 'external']
+    const job: Pick<PublicJob, 'origin'> = { origin: origins[1]! }
+    expect(job.origin).toBe('external')
   })
 })
