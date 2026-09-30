@@ -4,7 +4,7 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
-Built against `@fleetless/contracts` 5.1.0 (pinned to its pre-release `5.1.0-next.1` until that ships).
+Built against `@fleetless/contracts` 5.1.0.
 
 ### Added
 
