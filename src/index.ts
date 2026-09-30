@@ -48,7 +48,7 @@ export type {
   McpInteractionDecision,
 } from './auth.js'
 export type { DatapointsApi, DatapointSubscription, DatapointSubscriptionHandlers, HistoryOptions, HistoryAggregation } from './datapoints.js'
-export type { ActionsApi } from './actions.js'
+export type { ActionsApi, CancelReturnCode } from './actions.js'
 export type { ServicesApi } from './services.js'
 export type { PublishersApi } from './publishers.js'
 export type { CamerasApi, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession } from './cameras.js'
@@ -150,3 +150,11 @@ export type { JobOrigin } from '@fleetless/contracts'
 // guessing at the fields the way this SDK itself once did.
 export { parameterInvalidDetails } from '@fleetless/contracts'
 export type { ParameterInvalidDetails, ParameterViolation } from '@fleetless/contracts'
+
+// `error.details` of a `cancel_rejected` refusal is exactly this shape —
+// re-exported as a runtime schema for the reason `parameterInvalidDetails`
+// is: a caller parses it (`cancelRejectedDetails.parse(error.details)`) and
+// compares each goal's `return_code` against `CANCEL_RETURN_CODES` by name
+// instead of against bare numbers.
+export { cancelRejectedDetails, CANCEL_RETURN_CODES } from '@fleetless/contracts'
+export type { CancelRejectedDetails } from '@fleetless/contracts'

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientIdentity, Job } from '@fleetless/contracts'
-import { createClient, FleetlessError, InMemoryTokenStore } from '../src/index.js'
+import { CANCEL_RETURN_CODES, cancelRejectedDetails, createClient, FleetlessError, InMemoryTokenStore } from '../src/index.js'
+import type { CancelRejectedDetails, CancelReturnCode } from '../src/index.js'
 import { FakeWebSocket } from './fake-websocket.js'
 
 const IDENTITY: ClientIdentity = {
@@ -227,6 +228,43 @@ describe('actions.cancel', () => {
     const error = await promise.catch((thrown: unknown) => thrown)
     expect(error).toBeInstanceOf(FleetlessError)
     expect(error).toMatchObject({ code: 'cancel_rejected', details: { goals } })
+  })
+
+  // What a caller does with that rejection: parse details with the schema
+  // the SDK re-exports and compare return codes by name. Real ids here —
+  // the schema checks job_id is a UUID, as the cloud sends it.
+  it('lets a caller parse cancel_rejected details and compare return codes by name', async () => {
+    const JOB_A = '3f1e9a2c-6d4b-4f0a-9c8e-1b2a3c4d5e6f'
+    const JOB_B = '7c2f1b40-8e3a-4d51-9f6b-2a1c3d4e5f60'
+    const client = loggedInClient()
+    const promise = client.actions.cancel('robot1', 'dock', JOB_A)
+    await authenticate()
+
+    const goals = [
+      { job_id: JOB_A, goal_id: '0a1b2c3d4e5f60718293a4b5c6d7e8f9', return_code: CANCEL_RETURN_CODES.rejected },
+      { job_id: JOB_B, goal_id: '1b2c3d4e5f60718293a4b5c6d7e8f90a', return_code: null },
+    ]
+    const sent = currentSocket().sent.find((f) => f.type === 'cancel')
+    currentSocket().simulateMessage({
+      type: 'command_result',
+      request_id: sent?.request_id,
+      ok: false,
+      job: null,
+      code: 'cancel_rejected',
+      message: "The action server on 'dock' refused to cancel. Whether the goal ends is what its job reports next.",
+      details: { goals },
+    })
+
+    const error = await promise.catch((thrown: unknown) => thrown)
+    expect(error).toBeInstanceOf(FleetlessError)
+    const details: CancelRejectedDetails = cancelRejectedDetails.parse((error as FleetlessError).details)
+    expect(details.goals).toEqual(goals)
+    const rejected = details.goals.filter((g) => g.return_code === CANCEL_RETURN_CODES.rejected)
+    expect(rejected.map((g) => g.job_id)).toEqual([JOB_A])
+    // A server that did not answer is null, never one of the named codes.
+    const unanswered: CancelReturnCode | null = details.goals[1].return_code
+    expect(unanswered).toBeNull()
+    expect(Object.values(CANCEL_RETURN_CODES)).not.toContain(unanswered)
   })
 
   it('resolves an accepted cancel with the job still running — the end arrives later as the job\'s own update', async () => {
