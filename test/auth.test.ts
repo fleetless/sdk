@@ -25,7 +25,7 @@ import { FleetlessError } from '../src/errors.js'
 // compile-time guard that it's still re-exported from `src/index.ts`. A
 // type-only export gives no runtime signal if that's deleted — this is the
 // only thing that would catch it.
-import type { RateLimitDetails } from '../src/index.js'
+import type { RateLimitDetails, SignInResult } from '../src/index.js'
 import { listen, type LocalApi, type RecordedRequest, type StubReply } from './local-api.js'
 
 // **Every test here drives the SDK's DEFAULT `fetch` against a real
@@ -105,6 +105,16 @@ describe('auth — registration and verification (the 202 family)', () => {
     expect(local.requests[0]!.body).not.toContain('display_name')
   })
 
+  it('register omits password entirely when the caller passed none — an email-code-only app has nothing to set', async () => {
+    const local = await start(always(202))
+    const client = sessionClient(local.url)
+
+    await expect(client.auth.register({ email: 'a@b.de' })).resolves.toBeUndefined()
+
+    expect(Object.keys(local.requests[0]!.json() as object)).toEqual(['app_identifier', 'email'])
+    expect(local.requests[0]!.body).not.toContain('password')
+  })
+
   // The distinction the enumerated refusal codes are built on, asserted as
   // one `it` because it is one property: a caller must be able to tell "we sent
   // a mail, or would have" from "we refused you", and nothing else. Splitting
@@ -139,7 +149,7 @@ describe('auth — registration and verification (the 202 family)', () => {
     const tokenStore = new InMemoryTokenStore()
     const client = sessionClient(local.url, tokenStore)
 
-    await client.auth.verifyEmail('verification-token')
+    await expect(client.auth.verifyEmail('verification-token')).resolves.toEqual({ status: 'signed_in' })
 
     expect(local.requests[0]!.method).toBe('POST')
     expect(local.requests[0]!.path).toBe('/api/client/verify-email')
@@ -168,11 +178,11 @@ describe('auth — registration and verification (the 202 family)', () => {
 // ------------------------------------------------------------- password + session
 
 describe('auth — login, logout and the session', () => {
-  it('login sends the app identifier the client was built with and stores the returned session', async () => {
+  it('login sends the app identifier the client was built with, stores the returned session and resolves signed_in', async () => {
     const local = await start(always(200, SESSION))
     const tokenStore = new InMemoryTokenStore()
 
-    await sessionClient(local.url, tokenStore).auth.login('a@b.de', 'pw')
+    await expect(sessionClient(local.url, tokenStore).auth.login('a@b.de', 'pw')).resolves.toEqual({ status: 'signed_in' })
 
     expect(local.requests[0]!.path).toBe('/api/client/login')
     expect(local.requests[0]!.json()).toEqual({ app_identifier: 'app_x', email: 'a@b.de', password: 'pw' } satisfies ClientLoginRequest)
@@ -252,11 +262,13 @@ describe('auth — password reset and invitations', () => {
     expect(local.requests[0]!.json()).toEqual({ app_identifier: 'app_x', email: 'a@b.de' } satisfies ClientPasswordResetRequest)
   })
 
-  it('confirmPasswordReset spends the token and stores the session it answers with', async () => {
+  it('confirmPasswordReset spends the token, stores the session it answers with and resolves signed_in', async () => {
     const local = await start(always(200, SESSION))
     const tokenStore = new InMemoryTokenStore()
 
-    await sessionClient(local.url, tokenStore).auth.confirmPasswordReset('reset-token', 'new-correct-horse-battery')
+    await expect(
+      sessionClient(local.url, tokenStore).auth.confirmPasswordReset('reset-token', 'new-correct-horse-battery'),
+    ).resolves.toEqual({ status: 'signed_in' })
 
     expect(local.requests[0]!.path).toBe('/api/client/password/reset/confirm')
     expect(local.requests[0]!.json()).toEqual({
@@ -266,15 +278,17 @@ describe('auth — password reset and invitations', () => {
     expect(tokenStore.load()).toEqual(SESSION)
   })
 
-  it('acceptInvitation posts token, password and display name and stores the session', async () => {
+  it('acceptInvitation posts token, password and display name, stores the session and resolves signed_in', async () => {
     const local = await start(always(200, SESSION))
     const tokenStore = new InMemoryTokenStore()
 
-    await sessionClient(local.url, tokenStore).auth.acceptInvitation({
-      token: 'invite-token',
-      password: 'correct-horse-battery',
-      displayName: 'Ada',
-    })
+    await expect(
+      sessionClient(local.url, tokenStore).auth.acceptInvitation({
+        token: 'invite-token',
+        password: 'correct-horse-battery',
+        displayName: 'Ada',
+      }),
+    ).resolves.toEqual({ status: 'signed_in' })
 
     expect(local.requests[0]!.path).toBe('/api/client/invitations/accept')
     expect(local.requests[0]!.json()).toEqual({
@@ -291,6 +305,71 @@ describe('auth — password reset and invitations', () => {
     await sessionClient(local.url).auth.acceptInvitation({ token: 'invite-token', password: 'correct-horse-battery' })
 
     expect(Object.keys(local.requests[0]!.json() as object)).toEqual(['token', 'password'])
+  })
+
+  it('acceptInvitation sends no password key when the caller passed none — an email-code-only app has nothing to set', async () => {
+    const local = await start(always(200, SESSION))
+    const tokenStore = new InMemoryTokenStore()
+
+    await expect(
+      sessionClient(local.url, tokenStore).auth.acceptInvitation({ token: 'invite-token', displayName: 'Ada' }),
+    ).resolves.toEqual({ status: 'signed_in' })
+
+    expect(Object.keys(local.requests[0]!.json() as object)).toEqual(['token', 'display_name'])
+    expect(local.requests[0]!.body).not.toContain('password')
+    expect(tokenStore.load()).toEqual(SESSION)
+  })
+})
+
+// ------------------------------------------------------------- the sign-in result
+
+describe('auth — the sign-in result (login, verifyEmail, confirmPasswordReset, acceptInvitation)', () => {
+  // One table drives all four sign-in steps against both challenge statuses
+  // the cloud can answer — four copies of the same test would drift the
+  // moment one of them was edited and the others were not.
+  const SIGN_IN_STEPS: Record<string, (local: LocalApi, tokenStore: InMemoryTokenStore) => Promise<SignInResult>> = {
+    login: (local, tokenStore) => sessionClient(local.url, tokenStore).auth.login('a@b.de', 'pw'),
+    verifyEmail: (local, tokenStore) => sessionClient(local.url, tokenStore).auth.verifyEmail('verification-token'),
+    confirmPasswordReset: (local, tokenStore) =>
+      sessionClient(local.url, tokenStore).auth.confirmPasswordReset('reset-token', 'new-correct-horse-battery'),
+    acceptInvitation: (local, tokenStore) =>
+      sessionClient(local.url, tokenStore).auth.acceptInvitation({ token: 'invite-token', password: 'correct-horse-battery' }),
+  }
+
+  for (const [name, call] of Object.entries(SIGN_IN_STEPS)) {
+    for (const status of ['two_factor_required', 'two_factor_setup_required'] as const) {
+      it(`${name}: a ${status} challenge answer saves nothing and resolves the challenge as-is`, async () => {
+        const local = await start(always(200, { status, challenge: 'chal_abc123' }))
+        const tokenStore = new InMemoryTokenStore()
+
+        await expect(call(local, tokenStore)).resolves.toEqual({ status, challenge: 'chal_abc123' })
+
+        expect(tokenStore.load()).toBeNull()
+      })
+    }
+
+    it(`${name}: a tokens answer saves the session and resolves { status: 'signed_in' }`, async () => {
+      const local = await start(always(200, SESSION))
+      const tokenStore = new InMemoryTokenStore()
+
+      await expect(call(local, tokenStore)).resolves.toEqual({ status: 'signed_in' })
+
+      expect(tokenStore.load()).toEqual(SESSION)
+    })
+  }
+
+  it('me() after a challenge rejects no_session, client-side, before any request', async () => {
+    const local = await start(always(200, { status: 'two_factor_required', challenge: 'chal_abc123' }))
+    const tokenStore = new InMemoryTokenStore()
+    const client = sessionClient(local.url, tokenStore)
+
+    await expect(client.auth.login('a@b.de', 'pw')).resolves.toEqual({ status: 'two_factor_required', challenge: 'chal_abc123' })
+
+    const error = await client.auth.me().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect((error as FleetlessError).code).toBe('no_session')
+    // Only the login request — me() must not reach the network at all.
+    expect(local.requests).toHaveLength(1)
   })
 })
 
