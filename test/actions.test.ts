@@ -13,6 +13,7 @@ const IDENTITY: ClientIdentity = {
   app_id: 'app1',
   role_id: 'role1',
   email: 'a@b.de',
+  two_factor_enabled: false,
 }
 
 const RUNNING_JOB: Job = {
