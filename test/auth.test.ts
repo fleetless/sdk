@@ -749,6 +749,7 @@ describe('auth (server key)', () => {
   const SERVER_KEY_ALLOWED: Record<string, string> = {
     me: 'the one method a server key is for — it answers kind: server_key',
     listProviders: 'a public route that reads no caller',
+    signInMethods: 'same public route as listProviders, reading a different field off it',
     mcpInteraction: 'a public read; the bearer only decides already_granted',
     oidcErrorFromCallback: 'pure — it parses a query string and asks nothing',
     register: 'a public route that names its subject in the body and answers nothing',
@@ -841,13 +842,14 @@ describe('auth (server key)', () => {
       request.path === '/api/client/me'
         ? { status: 200, body: { ...IDENTITY, kind: 'server_key', app_user_id: null, server_key_id: 'sk1' } }
         : request.path === '/api/client/providers'
-          ? { status: 200, body: { providers: [{ slug: 'okta', name: 'Okta' }] } }
+          ? { status: 200, body: { providers: [{ slug: 'okta', name: 'Okta' }], sign_in_methods: { password: true, email_code: false } } }
           : { status: 200, body: INTERACTION },
     )
     const client = createClient({ apiUrl: local.url, appIdentifier: 'app_x', serverKey: 'flk_abc' })
 
     await expect(client.auth.me()).resolves.toMatchObject({ kind: 'server_key' })
     await expect(client.auth.listProviders()).resolves.toEqual([{ slug: 'okta', name: 'Okta' }])
+    await expect(client.auth.signInMethods()).resolves.toEqual({ password: true, emailCode: false })
     await expect(client.auth.mcpInteraction('int_123')).resolves.toEqual(INTERACTION)
     // Pure and local — it parses a query string and never asks anything.
     expect(client.auth.oidcErrorFromCallback(new URLSearchParams('error=no_access'))?.code).toBe('no_access')
@@ -856,7 +858,8 @@ describe('auth (server key)', () => {
     // the design rather than an oversight. `me` is answered FROM the key;
     // the interaction read takes an optional bearer that decides
     // `already_granted`, so it is sent (the cloud treats a non-app-user one as
-    // absent); `providers` reads no caller at all, so nothing is attached to it.
+    // absent); `providers` reads no caller at all, so nothing is attached to it
+    // (true for both calls that hit it — `listProviders` and `signInMethods`).
     const byPath = Object.fromEntries(local.requests.map((r) => [r.path, r.headers.authorization]))
     expect(byPath['/api/client/me']).toBe('Bearer flk_abc')
     expect(byPath['/api/client/mcp/interactions/int_123']).toBe('Bearer flk_abc')

@@ -65,6 +65,31 @@ describe('auth.listProviders', () => {
   })
 })
 
+describe('auth.signInMethods', () => {
+  it('reads the password/email_code flags off the same response listProviders reads, camelCased', async () => {
+    const body: ClientProviderListResponse = {
+      providers: [],
+      sign_in_methods: { password: true, email_code: true },
+    }
+    const local = await start(always(200, body))
+
+    await expect(client(local.url).auth.signInMethods()).resolves.toEqual({ password: true, emailCode: true })
+
+    const sent = local.requests[0]!
+    expect(sent.method).toBe('GET')
+    expect(sent.path).toBe('/api/client/providers')
+    expect(sent.query.get('app_identifier')).toBe('app_x')
+    // Public, same as listProviders: no credential attached.
+    expect(sent.headers.authorization).toBeUndefined()
+  })
+
+  it('surfaces the 404 an unknown app identifier gets', async () => {
+    const local = await start(always(404, { code: 'not_found', message: 'No app with that identifier.' } satisfies ApiError))
+
+    await expect(client(local.url).auth.signInMethods()).rejects.toMatchObject({ code: 'not_found' })
+  })
+})
+
 // ----------------------------------------------------------------------- start
 
 describe('auth.beginOidcLogin', () => {

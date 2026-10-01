@@ -48,6 +48,7 @@ export type {
   ConfirmTwoFactorSetupOptions,
   TwoFactorSetupConfirmation,
   ProviderButton,
+  SignInMethods,
   BeginOidcLoginOptions,
   OidcLoginRequest,
   CompleteOidcLoginOptions,
