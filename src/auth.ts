@@ -152,6 +152,21 @@ export type SignInResult =
   | { status: 'two_factor_required'; challenge: string }
   | { status: 'two_factor_setup_required'; challenge: string }
 
+/**
+ * Which credential-based ways in the app's login screen should draw, as
+ * `signInMethods()` answers it: a password field, a "mail me a code" link, or
+ * both. Federated buttons are `listProviders()`'s own answer, not this one —
+ * the two routes share one response on the wire (`GET /api/client/providers`)
+ * but ask different questions, so the SDK answers them separately rather than
+ * handing every caller a shape with fields it did not ask about.
+ */
+export interface SignInMethods {
+  /** Whether `login(email, password)` is on for this app. */
+  password: boolean
+  /** Whether `requestLoginCode`/`verifyLoginCode` is on for this app. */
+  emailCode: boolean
+}
+
 /** One sign-in button on the app's own login screen, as `listProviders()` lists it. */
 export interface ProviderButton {
   /** What `beginOidcLogin` addresses this provider by. */
@@ -260,10 +275,10 @@ export interface McpInteractionDecision {
  *
  * **A client built with a `serverKey` refuses everything that needs an app
  * user's own session** with `invalid_option`, before any request. `me()`,
- * `listProviders()`, `mcpInteraction()` and `oidcErrorFromCallback()` still
- * work on one: the first is what a server key is *for*, the next two are public
- * reads the cloud answers without any credential at all, and the last touches
- * no network.
+ * `listProviders()`, `signInMethods()`, `mcpInteraction()` and
+ * `oidcErrorFromCallback()` still work on one: the first is what a server key
+ * is *for*, the next three are public reads the cloud answers without any
+ * credential at all, and the last touches no network.
  */
 export interface AuthApi {
   /**
@@ -458,6 +473,18 @@ export interface AuthApi {
    * is configured.
    */
   listProviders(): Promise<ProviderButton[]>
+  /**
+   * Which credential-based sign-in methods this app has on, for drawing a
+   * password field, a "get a code by email" link, or both, on your own login
+   * screen — the other half of what the login screen needs, the federated
+   * buttons being `listProviders()`'s own answer.
+   *
+   * Public and unauthenticated, same route as `listProviders()`
+   * (`GET /api/client/providers`) — each call is its own request, picking a
+   * different field out of the same response; call both if your login
+   * screen needs both.
+   */
+  signInMethods(): Promise<SignInMethods>
   /**
    * Builds the URL that starts a federated sign-in, with a fresh `state` and a
    * fresh PKCE verifier. **Makes no network call and does not navigate** —
@@ -914,6 +941,14 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
       const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
       return response.providers
     },
+    async signInMethods() {
+      // Same route, same reasoning as `listProviders` right above — public,
+      // unauthenticated, the app identifier in the query. The field this one
+      // reads off the response is the only difference.
+      const query = new URLSearchParams({ app_identifier: appIdentifier })
+      const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
+      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code }
+    },
     async beginOidcLogin(input) {
       const state = generateState()
       const codeVerifier = generateCodeVerifier()
@@ -1191,6 +1226,13 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string, opt
       const query = new URLSearchParams({ app_identifier: appIdentifier })
       const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
       return response.providers
+    },
+    async signInMethods() {
+      // Allowed for `listProviders`' reason, right above: same public route,
+      // same no-caller read.
+      const query = new URLSearchParams({ app_identifier: appIdentifier })
+      const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
+      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code }
     },
     async beginOidcLogin() {
       serverKeyRefusal('beginOidcLogin', 'a federated sign-in is inherently an app user\'s browser flow')
