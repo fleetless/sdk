@@ -41,6 +41,7 @@ export type {
   AuthApi,
   RegisterOptions,
   AcceptInvitationOptions,
+  SignInResult,
   ProviderButton,
   BeginOidcLoginOptions,
   OidcLoginRequest,

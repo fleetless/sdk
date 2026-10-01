@@ -14,6 +14,7 @@ import {
   type ClientRefreshRequest,
   type ClientRegisterRequest,
   type ClientResendVerificationRequest,
+  type ClientSignInResult,
   type ClientVerifyEmailRequest,
   type McpConsentGrant,
   type McpConsentGrantListResponse,
@@ -34,8 +35,15 @@ import type { StoredSession, TokenStore } from './token-store.js'
 export interface RegisterOptions {
   /** The address the verification mail goes to. Nothing works until that link is spent. */
   email: string
-  /** At least 12 characters — `clientRegisterRequest` refuses less with a `validation_error`. */
-  password: string
+  /**
+   * At least 12 characters — `clientRegisterRequest` refuses less with a
+   * `validation_error`. **Optional, and omitted from the request entirely**
+   * when you do not pass it: an app whose `sign_in_methods` is email-code
+   * only has no password to set, and sending the key at all (even as
+   * `undefined`) would be a `422` against the strict schema — same reason as
+   * `displayName` below.
+   */
+  password?: string
   /**
    * What the app should call this person. Optional, and **omitted from the
    * request entirely** when you do not pass it — `clientRegisterRequest` is a
@@ -49,11 +57,35 @@ export interface RegisterOptions {
 export interface AcceptInvitationOptions {
   /** The `token` from the invitation link the developer's app was linked to. */
   token: string
-  /** At least 12 characters. The invitation fixes the role; this call fixes the credential. */
-  password: string
+  /**
+   * At least 12 characters. The invitation fixes the role; this call fixes
+   * the credential. **Optional, and omitted from the request entirely** when
+   * you do not pass it — same email-code-only reason as `RegisterOptions.password`.
+   */
+  password?: string
   /** Optional, and omitted from the request entirely when absent — same strict-schema reason as `RegisterOptions.displayName`. */
   displayName?: string
 }
+
+/**
+ * What every sign-in step (`login`, `verifyEmail`, `confirmPasswordReset`,
+ * `acceptInvitation`) resolves with — the session may not be ready yet.
+ *
+ * `'signed_in'` means exactly that: the session was stored, same as these
+ * calls always did. The other two mean the cloud is still waiting on a
+ * second factor — no session exists yet, nothing was stored, and `challenge`
+ * is a short-lived handle (five minutes) for the next call:
+ * `'two_factor_required'` when the person already has an authenticator
+ * (`POST /api/client/two-factor/verify`), `'two_factor_setup_required'` when
+ * the app requires one and the person has none yet
+ * (`POST /api/client/two-factor/setup` then `…/setup/confirm`). An app
+ * without two-factor on at all never sees either — every sign-in step
+ * resolves `{ status: 'signed_in' }`.
+ */
+export type SignInResult =
+  | { status: 'signed_in' }
+  | { status: 'two_factor_required'; challenge: string }
+  | { status: 'two_factor_setup_required'; challenge: string }
 
 /** One sign-in button on the app's own login screen, as `listProviders()` lists it. */
 export interface ProviderButton {
@@ -190,26 +222,27 @@ export interface AuthApi {
    */
   register(input: RegisterOptions): Promise<void>
   /**
-   * Spends a verification token and **stores the session it answers with**, so
-   * the person is not asked to log in immediately after proving they can read
-   * the mail.
+   * Spends a verification token and **stores the session it answers with**
+   * when the sign-in is complete, so the person is not asked to log in
+   * immediately after proving they can read the mail — see `SignInResult`
+   * for the second-factor case, where nothing is stored yet.
    *
    * `token_spent` covers unknown, expired and already-used alike — one code,
    * because the remedy is one thing: ask for a fresh link with
    * `resendVerification`. An app rendering this refusal should offer that.
    */
-  verifyEmail(token: string): Promise<void>
+  verifyEmail(token: string): Promise<SignInResult>
   /** Asks for the verification mail again. Resolves on `202` for every policy-allowed request, existing address or not — same reason as `register`. */
   resendVerification(email: string): Promise<void>
   /**
    * Exchanges email + password, and the client's configured app identifier, for
-   * a session.
+   * a session — or a second-factor challenge, see `SignInResult`.
    *
    * `invalid_credentials` is answered identically for a wrong password, a
    * blocked account and one still waiting to verify. Do not try to tell them
    * apart — there is nothing in the answer that does, deliberately.
    */
-  login(email: string, password: string): Promise<void>
+  login(email: string, password: string): Promise<SignInResult>
   /**
    * Ends the session: revokes the whole refresh-token family server-side (a
    * stolen refresh token stops working immediately), closes this client's live
@@ -234,7 +267,17 @@ export interface AuthApi {
    * which Fleetless never did better than it.
    */
   logout(): Promise<void>
-  /** Who the caller turned out to be, without decoding a token client-side — which is how apps end up trusting claims nobody verified. */
+  /**
+   * Who the caller turned out to be, without decoding a token client-side —
+   * which is how apps end up trusting claims nobody verified.
+   *
+   * Throws the SDK's own `no_session` **before any request is sent** when
+   * nothing is stored — which is exactly the state a sign-in step leaves a
+   * caller in while a second factor is still pending (see `SignInResult`):
+   * there is no session yet to ask the cloud about, so this fails the same
+   * way "never logged in" does, rather than round-tripping to a route that
+   * would just answer `unauthorized` for having no bearer at all.
+   */
   me(): Promise<ClientIdentity>
   /**
    * Changes the current app user's password.
@@ -256,21 +299,21 @@ export interface AuthApi {
   requestPasswordReset(email: string): Promise<void>
   /**
    * Spends a reset token, sets the new password and **stores the session it
-   * answers with**. Every refresh family of that user is revoked first — a
-   * forgotten password is one of the two states where somebody else may be
-   * holding a session.
+   * answers with** when the sign-in is complete (see `SignInResult`). Every
+   * refresh family of that user is revoked first — a forgotten password is
+   * one of the two states where somebody else may be holding a session.
    */
-  confirmPasswordReset(token: string, newPassword: string): Promise<void>
+  confirmPasswordReset(token: string, newPassword: string): Promise<SignInResult>
   /**
    * Accepts an app invitation: creates the account (or activates one invited
    * before it existed) with the role the invitation fixed, and **stores the
-   * session**.
+   * session** when the sign-in is complete (see `SignInResult`).
    *
    * An invitation always bypasses the app's domain whitelist — a developer
    * inviting somebody by hand has already made the decision the whitelist
    * automates.
    */
-  acceptInvitation(input: AcceptInvitationOptions): Promise<void>
+  acceptInvitation(input: AcceptInvitationOptions): Promise<SignInResult>
   /**
    * The app's **enabled** sign-in providers, for drawing the buttons on your
    * own login screen. A disabled provider is not a button that refuses; it is a
@@ -468,6 +511,18 @@ function displayNameField(displayName: string | undefined): { display_name?: str
 }
 
 /**
+ * Same discipline as `displayNameField`, for the other field that became
+ * optional alongside it: an app whose `sign_in_methods` is email-code only
+ * has no password to set, and `clientRegisterRequest`/`clientAcceptInvitationRequest`
+ * are both strict schemas — a key carrying `undefined` is a `422` the moment
+ * anything but `JSON.stringify` serializes the body, not "the same as
+ * absent".
+ */
+function passwordField(password: string | undefined): { password?: string } {
+  return password === undefined ? {} : { password }
+}
+
+/**
  * **The three client-auth calls that need no session and answer none**, shared
  * by both `auth` namespaces.
  *
@@ -489,7 +544,7 @@ function createPublicAuthCalls(http: HttpClient, appIdentifier: string) {
       const body: ClientRegisterRequest = {
         app_identifier: appIdentifier,
         email: input.email,
-        password: input.password,
+        ...passwordField(input.password),
         ...displayNameField(input.displayName),
       }
       // `expectEmptyBody` because the route answers 202 with nothing at all.
@@ -517,6 +572,21 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
   }
 
   /**
+   * What every sign-in step (`login`, `verifyEmail`, `confirmPasswordReset`,
+   * `acceptInvitation`) does with a `clientSignInResult`: store the session
+   * when the sign-in is complete and answer `{ status: 'signed_in' }`, or
+   * store **nothing** and hand the challenge back as-is when a second
+   * factor comes first. `'status' in result` is what tells the two apart —
+   * only the challenge shape carries that field (`sessionTokens` has
+   * `access_token`/`refresh_token`/`expires_in` and nothing named `status`).
+   */
+  async function completeSignIn(result: ClientSignInResult): Promise<SignInResult> {
+    if ('status' in result) return { status: result.status, challenge: result.challenge }
+    await storeSession(result)
+    return { status: 'signed_in' }
+  }
+
+  /**
    * `GET /api/client/me`, as a plain function rather than through `this`.
    * `mcpInteraction` uses it as a liveness probe (see there), and a method on
    * an object literal cannot reach a sibling through `this` once a caller has
@@ -530,13 +600,13 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
     ...createPublicAuthCalls(http, appIdentifier),
     async verifyEmail(token) {
       const body: ClientVerifyEmailRequest = { token }
-      const tokens: SessionTokens = await http.request('/api/client/verify-email', { method: 'POST', skipAuth: true, body })
-      await storeSession(tokens)
+      const result: ClientSignInResult = await http.request('/api/client/verify-email', { method: 'POST', skipAuth: true, body })
+      return completeSignIn(result)
     },
     async login(email, password) {
       const body: ClientLoginRequest = { app_identifier: appIdentifier, email, password }
-      const tokens: SessionTokens = await http.request('/api/client/login', { method: 'POST', skipAuth: true, body })
-      await storeSession(tokens)
+      const result: ClientSignInResult = await http.request('/api/client/login', { method: 'POST', skipAuth: true, body })
+      return completeSignIn(result)
     },
     async logout() {
       const session = await tokenStore.load()
@@ -562,6 +632,21 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
       await tokenStore.save(null)
     },
     async me() {
+      // Fails BEFORE any request when nothing is stored — the state a
+      // sign-in step leaves a caller in while a second factor is still
+      // pending (`SignInResult`'s two challenge statuses). Named apart from
+      // the server's own `unauthorized` so a caller can tell "never signed
+      // in / sign-in not finished" from "the server refused this bearer" —
+      // same distinction `SessionCredentials.#refresh` and the realtime
+      // channel already make for the identical situation.
+      const session = await tokenStore.load()
+      if (!session) {
+        throw new FleetlessError(
+          'no_session',
+          'auth.me() has no session to ask about — call login()/verifyEmail()/confirmPasswordReset()/acceptInvitation() ' +
+            'and get back { status: \'signed_in\' } first; a pending two-factor challenge does not count as signed in.',
+        )
+      }
       return identity()
     },
     async changePassword(currentPassword, newPassword) {
@@ -579,17 +664,17 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
     },
     async confirmPasswordReset(token, newPassword) {
       const body: ClientPasswordResetConfirmRequest = { token, new_password: newPassword }
-      const tokens: SessionTokens = await http.request('/api/client/password/reset/confirm', { method: 'POST', skipAuth: true, body })
-      await storeSession(tokens)
+      const result: ClientSignInResult = await http.request('/api/client/password/reset/confirm', { method: 'POST', skipAuth: true, body })
+      return completeSignIn(result)
     },
     async acceptInvitation(input) {
       const body: ClientAcceptInvitationRequest = {
         token: input.token,
-        password: input.password,
+        ...passwordField(input.password),
         ...displayNameField(input.displayName),
       }
-      const tokens: SessionTokens = await http.request('/api/client/invitations/accept', { method: 'POST', skipAuth: true, body })
-      await storeSession(tokens)
+      const result: ClientSignInResult = await http.request('/api/client/invitations/accept', { method: 'POST', skipAuth: true, body })
+      return completeSignIn(result)
     },
     async listProviders() {
       // The one GET in this family that carries the app identifier, and it
