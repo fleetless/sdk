@@ -4,6 +4,19 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Added
+
+- **`client.auth.requestLoginCode(email)` / `verifyLoginCode(email, code)`** — the password-free sign-in: a six-digit code mailed to `email`, valid ten minutes, spent against `verifyLoginCode` for a `SignInResult` exactly like `login`. `requestLoginCode` resolves on the policy-allowed `202` whether or not the address names an account, same enumeration discipline as `register`/`resendVerification`/`requestPasswordReset`.
+- **`client.auth.verifyTwoFactor({ challenge, code?, recoveryCode? })`** — answers the second-factor challenge a sign-in step can now return (see `SignInResult` below); saves the session unconditionally and resolves `void`.
+- **`client.auth.beginTwoFactorSetup(input?)` / `confirmTwoFactorSetup(input)`** — sets a TOTP authenticator up, either mid sign-in (pass the `challenge` a `two_factor_setup_required` result carried) or from the app's own account settings (no `challenge`, the current session is the credential). `confirmTwoFactorSetup` resolves the ten one-time recovery codes.
+- **`client.auth.disableTwoFactor(code)`** — turns the signed-in app user's authenticator off; a current code proves the person still holds it before it and every recovery code are removed.
+- **`client.auth.signInMethods()`** — which credential-based sign-in methods (`password`, `emailCode`) the app has on, for drawing the right fields on your own login screen; the federated buttons stay `listProviders()`'s own answer. Public and unauthenticated, same route as `listProviders()`.
+
+### Changed
+
+- **`login`, `verifyEmail`, `confirmPasswordReset` and `acceptInvitation` now resolve a `SignInResult`** (`{ status: 'signed_in' }` or a two-factor challenge: `{ status: 'two_factor_required' | 'two_factor_setup_required', challenge }`), not `void`. An app without two-factor on at all always sees `signed_in`, and code that ignored the previous `void` still compiles — but a caller that wants to *handle* a second factor now has to look at `status` rather than assuming the session was always stored. The session is saved only for `signed_in`; for either challenge status nothing is stored yet, and `me()` called in that window rejects the SDK's own `no_session`, client-side, before any request.
+- **`register`'s and `acceptInvitation`'s `password` is now optional** (`password?: string`) — an app whose `sign_in_methods` is email-code only has no password to set, and the key is genuinely omitted from the wire body, not sent as `password: undefined`.
+
 ## [4.2.0] — 2026-09-30
 
 Built against `@fleetless/contracts` 5.1.0.
