@@ -40,7 +40,10 @@ function base64Url(bytes: Buffer): string {
 
 describe('auth.listProviders', () => {
   it('reads the app\'s enabled sign-in buttons, sending the app identifier as a QUERY parameter', async () => {
-    const body: ClientProviderListResponse = { providers: [{ slug: 'okta', name: 'Okta' }, { slug: 'entra', name: 'Microsoft Entra' }] }
+    const body: ClientProviderListResponse = {
+      providers: [{ slug: 'okta', name: 'Okta' }, { slug: 'entra', name: 'Microsoft Entra' }],
+      sign_in_methods: { password: false, email_code: false },
+    }
     const local = await start(always(200, body))
 
     await expect(client(local.url).auth.listProviders()).resolves.toEqual(body.providers)
