@@ -291,8 +291,9 @@ async function main() {
  * exactly the claim a reader would over-read.
  *
  * What IS reachable without a mailbox is driven here, against the seed's
- * already-active users: the public provider list, login and `me()`, the
- * password round trip, and both halves of the reset acknowledgement.
+ * already-active users: the public provider list, `signInMethods`, login and
+ * `me()`, the password round trip, and both halves of the reset
+ * acknowledgement.
  *
  * **`listProviders` is a smoke test, not a guard, and the distinction is the
  * point.** A seeded org configures no OIDC provider, so the honest expected
@@ -303,6 +304,15 @@ async function main() {
  * count is printed rather than asserted. If a provider ever is seeded, the
  * shape check below starts having something to say; until then it is honest
  * about saying nothing.
+ *
+ * **`signInMethods` drives `requestLoginCode` ONLY when the seed turned
+ * `email_code` on**, read off the live answer rather than assumed from this
+ * script's own env — a seed that has it off would make an unconditional call
+ * here measure a refusal that has nothing to do with the SDK. Only that the
+ * call resolves is asserted: the six-digit code itself lands in a mailbox,
+ * and reading it is ops' browser check's job, not this one's — same
+ * division of labour as `register`/`verifyEmail`/`acceptInvitation`/
+ * `confirmPasswordReset` above.
  *
  * **The password round trip changes a real credential and changes it back.**
  * It runs on `OBSERVER_EMAIL` where the seed exported one — a user no other
@@ -325,6 +335,34 @@ async function checkClientAuth() {
     providers.every((provider) => typeof provider?.slug === 'string' && typeof provider?.name === 'string'),
     JSON.stringify(providers),
   )
+
+  // Same route as [6a]/[6b] (`GET /api/client/providers`), a different field
+  // of the same response — public, unauthenticated, no session involved.
+  const signInMethods = await anonymous.auth.signInMethods()
+  check(
+    '[6m] signInMethods() answers without any session, with both flags booleans',
+    typeof signInMethods?.password === 'boolean' && typeof signInMethods?.emailCode === 'boolean',
+    JSON.stringify(signInMethods),
+  )
+  console.log(`  INFO  the seeded app's signInMethods = ${JSON.stringify(signInMethods)}`)
+  if (signInMethods?.emailCode) {
+    // Only the call resolving is asserted — NOT the mailed code, which is
+    // ops' browser check's subject (see this function's doc comment). A
+    // seed with email_code off would make this call measure a policy
+    // refusal that has nothing to do with the SDK, so it is gated on the
+    // live answer above rather than assumed.
+    const requested = await anonymous.auth.requestLoginCode(email).then(
+      () => ({ ok: true, error: null }),
+      (error) => ({ ok: false, error }),
+    )
+    check(
+      '[6n] requestLoginCode(email) resolves cleanly when the seeded app has email_code on',
+      requested.ok,
+      requested.ok ? undefined : (requested.error?.code ?? String(requested.error)),
+    )
+  } else {
+    console.log('  INFO  [6n] skipped — the seeded app does not have email_code on, so there is nothing for requestLoginCode to exercise here')
+  }
 
   const client = createClient({ apiUrl, appIdentifier })
   await client.auth.login(email, password)
