@@ -3,6 +3,8 @@ import {
   clientOidcErrorCode,
   type ClientAcceptInvitationRequest,
   type ClientIdentity,
+  type ClientLoginCodeRequest,
+  type ClientLoginCodeVerifyRequest,
   type ClientLoginRequest,
   type ClientLogoutRequest,
   type ClientMcpInteraction,
@@ -15,11 +17,17 @@ import {
   type ClientRegisterRequest,
   type ClientResendVerificationRequest,
   type ClientSignInResult,
+  type ClientTwoFactorDisableRequest,
+  type ClientTwoFactorSetupConfirmRequest,
+  type ClientTwoFactorSetupConfirmResponse,
+  type ClientTwoFactorSetupRequest,
+  type ClientTwoFactorVerifyRequest,
   type ClientVerifyEmailRequest,
   type McpConsentGrant,
   type McpConsentGrantListResponse,
   type PasswordChangeRequest,
   type SessionTokens,
+  type TwoFactorSetupResponse,
 } from '@fleetless/contracts'
 import { FleetlessError } from './errors.js'
 import { pathSegment, type CredentialSource, type HttpClient } from './http.js'
@@ -68,8 +76,65 @@ export interface AcceptInvitationOptions {
 }
 
 /**
+ * `verifyTwoFactor()`'s input — the `challenge` a sign-in step answered with
+ * `two_factor_required`, plus exactly one of the authenticator's current
+ * code or a recovery code. Sending both, or neither, is a `400
+ * validation_error` the cloud answers (`clientTwoFactorVerifyRequest` is a
+ * strict schema with both fields optional) — this SDK does not duplicate
+ * that check client-side, it only serializes whichever one the caller gave.
+ */
+export interface VerifyTwoFactorOptions {
+  /** The handle a sign-in step (`login`, `verifyLoginCode`, …) answered. Five minutes, five wrong codes. */
+  challenge: string
+  /** The authenticator's current six digits. Accepted at most once — the same code sent twice signs in exactly once. */
+  code?: string
+  /** One of the ten recovery codes, spent by its use. Use this instead of `code` when the authenticator itself is unavailable. */
+  recoveryCode?: string
+}
+
+/**
+ * `beginTwoFactorSetup()`'s input. **Two ways in, decided by what is
+ * passed**: a `challenge` from a `two_factor_setup_required` sign-in step
+ * (no session exists yet, so the challenge itself is the credential), or
+ * nothing at all — from the app's own account settings, where the caller's
+ * *current session* is the credential instead. Passing neither a challenge
+ * nor holding a session is `401 unauthorized` from the cloud, not a
+ * client-side refusal: this SDK has no way to tell "forgot to pass a
+ * challenge" apart from "forgot to sign in first" without asking the server.
+ */
+export interface BeginTwoFactorSetupOptions {
+  challenge?: string
+}
+
+/** What `beginTwoFactorSetup()` resolves with — not yet in use until `confirmTwoFactorSetup` accepts a code from it. */
+export interface TwoFactorSetup {
+  /** The shared secret, for a manual "enter this key" fallback. */
+  secret: string
+  /** The full `otpauth://` URI, for rendering as a QR code. */
+  otpauthUrl: string
+}
+
+/** `confirmTwoFactorSetup()`'s input — same two ways in as `beginTwoFactorSetup`, plus the code from the new authenticator. */
+export interface ConfirmTwoFactorSetupOptions {
+  /** A code from the authenticator `beginTwoFactorSetup` just started. A mismatch is `invalid_code`. */
+  code: string
+  /** The same challenge `beginTwoFactorSetup` was given, during a sign-in. Omit it when setting up from account settings instead. */
+  challenge?: string
+}
+
+/**
+ * What `confirmTwoFactorSetup()` resolves with: the ten recovery codes,
+ * shown this once — any earlier set is void. The session itself is not
+ * here; it is saved to the token store the same way every other sign-in
+ * step saves one, not handed back for the caller to do that itself.
+ */
+export interface TwoFactorSetupConfirmation {
+  recoveryCodes: string[]
+}
+
+/**
  * What every sign-in step (`login`, `verifyEmail`, `confirmPasswordReset`,
- * `acceptInvitation`) resolves with — the session may not be ready yet.
+ * `acceptInvitation`, `verifyLoginCode`) resolves with — the session may not be ready yet.
  *
  * `'signed_in'` means exactly that: the session was stored, same as these
  * calls always did. The other two mean the cloud is still waiting on a
@@ -244,6 +309,27 @@ export interface AuthApi {
    */
   login(email: string, password: string): Promise<SignInResult>
   /**
+   * Mails a six-digit sign-in code to `email`, valid ten minutes — the
+   * password-free alternative to `login`. Resolves on the route's `202` for
+   * every policy-allowed request, whether or not the address names an
+   * account, same discipline as `register`/`resendVerification`/
+   * `requestPasswordReset`: this is no enumeration oracle either. A fresh
+   * request expires the previous code for the same address.
+   */
+  requestLoginCode(email: string): Promise<void>
+  /**
+   * Spends a mailed sign-in code for a session — or a second-factor
+   * challenge, see `SignInResult`, exactly like `login`.
+   *
+   * A wrong code is `invalid_code`, carrying `details.attempts_left`; five
+   * wrong attempts, or the tenth minute, spend the code the same way a
+   * correct one would, and the recovery is the same either way: call
+   * `requestLoginCode` again. A pending-verification account that spends a
+   * code is activated — reading the mail at that address is the proof
+   * verification asks for.
+   */
+  verifyLoginCode(email: string, code: string): Promise<SignInResult>
+  /**
    * Ends the session: revokes the whole refresh-token family server-side (a
    * stolen refresh token stops working immediately), closes this client's live
    * realtime connection if it has one, and clears the local store.
@@ -314,6 +400,53 @@ export interface AuthApi {
    * automates.
    */
   acceptInvitation(input: AcceptInvitationOptions): Promise<SignInResult>
+  /**
+   * Answers a `two_factor_required` challenge and **saves the session
+   * unconditionally** — unlike `login`/`verifyEmail`/`confirmPasswordReset`/
+   * `acceptInvitation`/`verifyLoginCode`, this call's answer is never a
+   * `SignInResult` union: the second factor is the last step, so the cloud
+   * has nothing left to ask for and always answers tokens.
+   *
+   * A wrong code or recovery code is `invalid_code`, carrying
+   * `details.attempts_left`; five wrong attempts, or the challenge's own
+   * five minutes, spend it the same way a correct answer would — the
+   * sign-in has to start over from `login`/`requestLoginCode`/etc.
+   */
+  verifyTwoFactor(input: VerifyTwoFactorOptions): Promise<void>
+  /**
+   * Starts an authenticator setup and hands back its secret and `otpauth://`
+   * URL for rendering a QR code. **Two ways in**: pass the `challenge` a
+   * `two_factor_setup_required` sign-in step answered, when the app requires
+   * a second factor and this person has none yet — no session exists at
+   * that point, so the challenge is the credential; or pass nothing at all,
+   * from the app's own account settings, where the *current session* is the
+   * credential instead. The secret is not in use until
+   * `confirmTwoFactorSetup` accepts a code from it — calling this twice
+   * replaces the pending secret, and an account that already has an
+   * authenticator keeps it until the new one is confirmed.
+   */
+  beginTwoFactorSetup(input?: BeginTwoFactorSetupOptions): Promise<TwoFactorSetup>
+  /**
+   * Confirms the authenticator `beginTwoFactorSetup` just started, with a
+   * code from it, and **saves the session it answers** — same two ways in
+   * as `beginTwoFactorSetup` (a sign-in `challenge`, or the current
+   * session). On success the authenticator is on and ten recovery codes
+   * come back, shown this once; any earlier set is void. A code that does
+   * not match the pending secret is `invalid_code`.
+   *
+   * From account settings, every other session of the account ends and this
+   * call's own session is replaced with the fresh one it answers — the same
+   * discipline `changePassword` already keeps.
+   */
+  confirmTwoFactorSetup(input: ConfirmTwoFactorSetupOptions): Promise<TwoFactorSetupConfirmation>
+  /**
+   * Turns the signed-in app user's authenticator off — the account's own
+   * door, not the developer's support one (`DELETE
+   * /api/apps/:id/users/:userId/two-factor`, management-side). A current
+   * code proves the person still holds the authenticator before it and
+   * every recovery code are removed; a stolen session alone cannot do this.
+   */
+  disableTwoFactor(code: string): Promise<void>
   /**
    * The app's **enabled** sign-in providers, for drawing the buttons on your
    * own login screen. A disabled provider is not a button that refuses; it is a
@@ -523,17 +656,28 @@ function passwordField(password: string | undefined): { password?: string } {
 }
 
 /**
- * **The three client-auth calls that need no session and answer none**, shared
+ * Same discipline again, for the `challenge` on `clientTwoFactorSetupRequest`
+ * and `clientTwoFactorSetupConfirmRequest` — both strict schemas, both
+ * optional: present during a sign-in's setup step, absent from the app's
+ * own account settings, where the current session is the credential
+ * instead (see `beginTwoFactorSetup`/`confirmTwoFactorSetup`).
+ */
+function challengeField(challenge: string | undefined): { challenge?: string } {
+  return challenge === undefined ? {} : { challenge }
+}
+
+/**
+ * **The four client-auth calls that need no session and answer none**, shared
  * by both `auth` namespaces.
  *
- * `register`, `resendVerification` and `requestPasswordReset` are `auth:
- * 'none'` in the route manifest, take their subject as an argument, and answer
- * `202` with an empty body. Nothing about them reads the caller, so a
- * server-key client refusing them was this SDK inventing a restriction the
- * cloud does not have — and a developer server-rendering their own sign-up or
- * forgot-password page has exactly one client in their backend. The refusal
- * messages were also arguing the wrong thing: `register` registers the address
- * in the body, not the caller.
+ * `register`, `resendVerification`, `requestPasswordReset` and
+ * `requestLoginCode` are `auth: 'none'` in the route manifest, take their
+ * subject as an argument, and answer `202` with an empty body. Nothing about
+ * them reads the caller, so a server-key client refusing them was this SDK
+ * inventing a restriction the cloud does not have — and a developer
+ * server-rendering their own sign-up or forgot-password page has exactly one
+ * client in their backend. The refusal messages were also arguing the wrong
+ * thing: `register` registers the address in the body, not the caller.
  *
  * Written once because two copies of a body builder is how the two drift, and
  * because the strictness note on `displayNameField` applies to both.
@@ -561,6 +705,10 @@ function createPublicAuthCalls(http: HttpClient, appIdentifier: string) {
       const body: ClientPasswordResetRequest = { app_identifier: appIdentifier, email }
       await http.request('/api/client/password/reset', { method: 'POST', skipAuth: true, expectEmptyBody: true, body })
     },
+    async requestLoginCode(email: string): Promise<void> {
+      const body: ClientLoginCodeRequest = { app_identifier: appIdentifier, email }
+      await http.request('/api/client/login/code', { method: 'POST', skipAuth: true, expectEmptyBody: true, body })
+    },
   }
 }
 
@@ -573,12 +721,20 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
 
   /**
    * What every sign-in step (`login`, `verifyEmail`, `confirmPasswordReset`,
-   * `acceptInvitation`) does with a `clientSignInResult`: store the session
-   * when the sign-in is complete and answer `{ status: 'signed_in' }`, or
-   * store **nothing** and hand the challenge back as-is when a second
-   * factor comes first. `'status' in result` is what tells the two apart —
-   * only the challenge shape carries that field (`sessionTokens` has
-   * `access_token`/`refresh_token`/`expires_in` and nothing named `status`).
+   * `acceptInvitation`, `verifyLoginCode`) does with a `clientSignInResult`:
+   * store the session when the sign-in is complete and answer `{ status:
+   * 'signed_in' }`, or store **nothing** and hand the challenge back as-is
+   * when a second factor comes first. `'status' in result` is what tells
+   * the two apart — only the challenge shape carries that field
+   * (`sessionTokens` has `access_token`/`refresh_token`/`expires_in` and
+   * nothing named `status`).
+   *
+   * **Not used by `verifyTwoFactor`/`confirmTwoFactorSetup`**: both answer
+   * the second factor, the last step there is, so the cloud never sends
+   * back a challenge for either — their response is `sessionTokens` (or,
+   * for the setup confirm, that shape nested under `session`) outright,
+   * not a `clientSignInResult` union, so there is nothing here for them to
+   * discriminate.
    */
   async function completeSignIn(result: ClientSignInResult): Promise<SignInResult> {
     if ('status' in result) return { status: result.status, challenge: result.challenge }
@@ -606,6 +762,11 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
     async login(email, password) {
       const body: ClientLoginRequest = { app_identifier: appIdentifier, email, password }
       const result: ClientSignInResult = await http.request('/api/client/login', { method: 'POST', skipAuth: true, body })
+      return completeSignIn(result)
+    },
+    async verifyLoginCode(email, code) {
+      const body: ClientLoginCodeVerifyRequest = { app_identifier: appIdentifier, email, code }
+      const result: ClientSignInResult = await http.request('/api/client/login/code/verify', { method: 'POST', skipAuth: true, body })
       return completeSignIn(result)
     },
     async logout() {
@@ -675,6 +836,69 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
       }
       const result: ClientSignInResult = await http.request('/api/client/invitations/accept', { method: 'POST', skipAuth: true, body })
       return completeSignIn(result)
+    },
+    async verifyTwoFactor(input) {
+      // `clientTwoFactorVerifyRequest` is strict and wants exactly one of
+      // `code`/`recovery_code` — spread-conditional for the same reason
+      // `passwordField` is: `JSON.stringify` already drops an `undefined`
+      // value, but a key built unconditionally is one `JSON.stringify`
+      // swap away from a stray `422`.
+      const body: ClientTwoFactorVerifyRequest = {
+        challenge: input.challenge,
+        ...(input.code !== undefined ? { code: input.code } : {}),
+        ...(input.recoveryCode !== undefined ? { recovery_code: input.recoveryCode } : {}),
+      }
+      // `skipAuth`: no session exists yet at this point in the sign-in — the
+      // challenge itself is the credential, same as `login`/`verifyEmail`.
+      const tokens: SessionTokens = await http.request('/api/client/two-factor/verify', { method: 'POST', skipAuth: true, body })
+      // Not `completeSignIn` — this answer is `sessionTokens` outright, never
+      // a `clientSignInResult` union (the second factor is the last step,
+      // so there is nothing left for the cloud to ask for), so there is no
+      // challenge shape here to discriminate against.
+      await storeSession(tokens)
+    },
+    async beginTwoFactorSetup(input) {
+      const challenge = input?.challenge
+      const body: ClientTwoFactorSetupRequest = challengeField(challenge)
+      // Two ways in, decided by what is sent: a `challenge` in the body is
+      // the credential during a sign-in's setup step, where no session
+      // exists yet — `skipAuth` so a stale bearer from some earlier session
+      // never rides along with it. With no challenge, this is the app's own
+      // account settings instead, and the current session IS the
+      // credential — not `skipAuth`, exactly like `changePassword`.
+      const response: TwoFactorSetupResponse = await http.request('/api/client/two-factor/setup', {
+        method: 'POST',
+        skipAuth: challenge !== undefined,
+        body,
+      })
+      return { secret: response.secret, otpauthUrl: response.otpauth_url }
+    },
+    async confirmTwoFactorSetup(input) {
+      const body: ClientTwoFactorSetupConfirmRequest = { code: input.code, ...challengeField(input.challenge) }
+      // Same two ways in as `beginTwoFactorSetup`, for the same reason.
+      const response: ClientTwoFactorSetupConfirmResponse = await http.request('/api/client/two-factor/setup/confirm', {
+        method: 'POST',
+        skipAuth: input.challenge !== undefined,
+        body,
+      })
+      // The session is nested under `session` here, not the top-level
+      // answer `verifyTwoFactor`/`changePassword` get — `clientSignInResult`
+      // doesn't apply (see `completeSignIn`'s doc), and this response also
+      // carries the recovery codes beside it, so it cannot be bare
+      // `sessionTokens` either.
+      await storeSession(response.session)
+      return { recoveryCodes: response.recovery_codes }
+    },
+    async disableTwoFactor(code) {
+      const body: ClientTwoFactorDisableRequest = { code }
+      // No `skipAuth` — this is the app user's own door, and the current
+      // session is the only credential this call ever has. With none
+      // stored, `#send` attaches no bearer and the cloud answers `401
+      // unauthorized` itself; this method adds no client-side precheck the
+      // way `me()` does, because (unlike the second-factor-pending state
+      // `me()` guards against) there is no in-between state here to name
+      // more precisely than "not signed in."
+      await http.request('/api/client/two-factor', { method: 'DELETE', expectEmptyBody: true, body })
     },
     async listProviders() {
       // The one GET in this family that carries the app identifier, and it
@@ -889,11 +1113,11 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string, opt
   const subject = option === 'serverKey' ? 'a server key' : 'a supplied credential'
   const holder = option === 'serverKey' ? 'a server-key client' : 'a client with a supplied credential'
   return {
-    // **`register`, `resendVerification` and `requestPasswordReset` are
-    // allowed here** — see `createPublicAuthCalls`. They are public routes
-    // that name their own subject and answer nothing, so a server-rendered
-    // sign-up or forgot-password page can use the one client its backend
-    // already has.
+    // **`register`, `resendVerification`, `requestPasswordReset` and
+    // `requestLoginCode` are allowed here** — see `createPublicAuthCalls`.
+    // They are public routes that name their own subject and answer
+    // nothing, so a server-rendered sign-up or forgot-password (or
+    // sign-in-by-code) page can use the one client its backend already has.
     ...createPublicAuthCalls(http, appIdentifier),
     async verifyEmail() {
       // **Refused for the session it answers, not for who is calling.** The
@@ -907,6 +1131,11 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string, opt
     },
     async login() {
       serverKeyRefusal('login', `${subject} IS the credential; there is nothing to exchange`)
+    },
+    async verifyLoginCode() {
+      // Same reason as `verifyEmail`: the route is public, but it answers a
+      // session this client has nowhere to keep.
+      serverKeyRefusal('verifyLoginCode', `the route answers a session and ${holder} has nowhere to store it, so the session would be silently discarded`)
     },
     async logout() {
       serverKeyRefusal('logout', `${subject} holds no session to end`)
@@ -926,6 +1155,33 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string, opt
     },
     async acceptInvitation() {
       serverKeyRefusal('acceptInvitation', `the route answers a session and ${holder} has nowhere to store it, so the session would be silently discarded`)
+    },
+    async verifyTwoFactor() {
+      // Same reason as `verifyEmail`/`login`: a second factor is a step in
+      // an app user's OWN sign-in, and its answer is a session this client
+      // has nowhere to keep — ${subject} never goes through the first step
+      // (`login`) that a challenge comes from in the first place.
+      serverKeyRefusal('verifyTwoFactor', `the route answers a session and ${holder} has nowhere to store it, so the session would be silently discarded`)
+    },
+    async beginTwoFactorSetup() {
+      // Unlike `verifyTwoFactor`, this route does not answer a session — but
+      // an authenticator belongs to a person's own account, and ${subject}
+      // is not a person for either of its two ways in: it never receives a
+      // sign-in challenge (${subject} never signs in), and it has no
+      // "current session" of its own for the account-settings path either.
+      serverKeyRefusal('beginTwoFactorSetup', `a two-factor setup is a person's own account's, and ${subject} is not a person's session`)
+    },
+    async confirmTwoFactorSetup() {
+      serverKeyRefusal(
+        'confirmTwoFactorSetup',
+        `a two-factor setup is a person's own account's, and ${holder} is not a person's session and has nowhere to store the one this route answers with`,
+      )
+    },
+    async disableTwoFactor() {
+      // Mirrors `approveMcpInteraction`/`denyMcpInteraction` below: this is a
+      // person's own decision about their own account, and a server key is
+      // not a person.
+      serverKeyRefusal('disableTwoFactor', `turning an authenticator off is a person's own decision, and ${subject} is not a person`)
     },
     async listProviders() {
       // **Allowed, unlike the rest.** The route is public and reads no caller:
