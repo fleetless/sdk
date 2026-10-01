@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 import type {
   ClientAcceptInvitationRequest,
+  ClientLoginCodeRequest,
+  ClientLoginCodeVerifyRequest,
   ClientLoginRequest,
   ClientLogoutRequest,
   ClientOidcExchangeRequest,
@@ -9,6 +11,10 @@ import type {
   ClientRefreshRequest,
   ClientRegisterRequest,
   ClientResendVerificationRequest,
+  ClientTwoFactorDisableRequest,
+  ClientTwoFactorSetupConfirmRequest,
+  ClientTwoFactorSetupRequest,
+  ClientTwoFactorVerifyRequest,
   ClientVerifyEmailRequest,
   PasswordChangeRequest,
 } from '@fleetless/contracts'
@@ -136,6 +142,12 @@ interface RequestBodyByRoute {
   '/api/client/password/reset/confirm': ClientPasswordResetConfirmRequest
   '/api/client/invitations/accept': ClientAcceptInvitationRequest
   '/api/client/oidc/exchange': ClientOidcExchangeRequest
+  '/api/client/login/code': ClientLoginCodeRequest
+  '/api/client/login/code/verify': ClientLoginCodeVerifyRequest
+  '/api/client/two-factor/verify': ClientTwoFactorVerifyRequest
+  '/api/client/two-factor/setup': ClientTwoFactorSetupRequest
+  '/api/client/two-factor/setup/confirm': ClientTwoFactorSetupConfirmRequest
+  '/api/client/two-factor': ClientTwoFactorDisableRequest
 }
 
 /**

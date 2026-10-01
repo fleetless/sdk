@@ -4,6 +4,8 @@ import type {
   ApiError,
   ClientAcceptInvitationRequest,
   ClientIdentity,
+  ClientLoginCodeRequest,
+  ClientLoginCodeVerifyRequest,
   ClientLoginRequest,
   ClientLogoutRequest,
   ClientMcpInteraction,
@@ -11,6 +13,7 @@ import type {
   ClientPasswordResetRequest,
   ClientRegisterRequest,
   ClientResendVerificationRequest,
+  ClientTwoFactorDisableRequest,
   ClientVerifyEmailRequest,
   McpConsentGrantListResponse,
   PasswordChangeRequest,
@@ -334,6 +337,11 @@ describe('auth — the sign-in result (login, verifyEmail, confirmPasswordReset,
       sessionClient(local.url, tokenStore).auth.confirmPasswordReset('reset-token', 'new-correct-horse-battery'),
     acceptInvitation: (local, tokenStore) =>
       sessionClient(local.url, tokenStore).auth.acceptInvitation({ token: 'invite-token', password: 'correct-horse-battery' }),
+    // Added in this task: spending a mailed sign-in code answers the identical
+    // `clientSignInResult`, so it rides the same table rather than a copy of
+    // these two tests — the whole point of `completeSignIn` being one shared
+    // function.
+    verifyLoginCode: (local, tokenStore) => sessionClient(local.url, tokenStore).auth.verifyLoginCode('a@b.de', '123456'),
   }
 
   for (const [name, call] of Object.entries(SIGN_IN_STEPS)) {
@@ -370,6 +378,203 @@ describe('auth — the sign-in result (login, verifyEmail, confirmPasswordReset,
     expect((error as FleetlessError).code).toBe('no_session')
     // Only the login request — me() must not reach the network at all.
     expect(local.requests).toHaveLength(1)
+  })
+})
+
+// --------------------------------------------------------- email code sign-in
+
+describe('auth — requesting and spending a sign-in code', () => {
+  it('requestLoginCode posts the app-scoped pair and resolves on the 202 that carries no body', async () => {
+    const local = await start(always(202))
+
+    await expect(sessionClient(local.url).auth.requestLoginCode('a@b.de')).resolves.toBeUndefined()
+
+    expect(local.requests[0]!.method).toBe('POST')
+    expect(local.requests[0]!.path).toBe('/api/client/login/code')
+    expect(local.requests[0]!.json()).toEqual({ app_identifier: 'app_x', email: 'a@b.de' } satisfies ClientLoginCodeRequest)
+    // Public, like register/resendVerification/requestPasswordReset — no bearer offered to a route that reads no caller.
+    expect(local.requests[0]!.headers.authorization).toBeUndefined()
+  })
+
+  it('verifyLoginCode posts the app identifier, address and code', async () => {
+    const local = await start(always(200, SESSION))
+
+    await expect(sessionClient(local.url).auth.verifyLoginCode('a@b.de', '123456')).resolves.toEqual({ status: 'signed_in' })
+
+    expect(local.requests[0]!.method).toBe('POST')
+    expect(local.requests[0]!.path).toBe('/api/client/login/code/verify')
+    expect(local.requests[0]!.json()).toEqual({
+      app_identifier: 'app_x',
+      email: 'a@b.de',
+      code: '123456',
+    } satisfies ClientLoginCodeVerifyRequest)
+  })
+
+  it('verifyLoginCode surfaces a wrong code as invalid_code with details.attempts_left intact', async () => {
+    const local = await start(
+      always(400, { code: 'invalid_code', message: 'Wrong code.', details: { attempts_left: 3 } } satisfies ApiError),
+    )
+    const tokenStore = new InMemoryTokenStore()
+
+    const error = await sessionClient(local.url, tokenStore).auth.verifyLoginCode('a@b.de', '000000').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect((error as FleetlessError).code).toBe('invalid_code')
+    expect((error as FleetlessError).details).toEqual({ attempts_left: 3 })
+    expect(tokenStore.load()).toBeNull()
+  })
+})
+
+// --------------------------------------------------------------- two-factor
+
+describe('auth — answering a two-factor challenge (verifyTwoFactor)', () => {
+  it('sends the challenge and an authenticator code, and ALWAYS stores the session — this answer is never a union', async () => {
+    const local = await start(always(200, SESSION))
+    const tokenStore = new InMemoryTokenStore()
+
+    await expect(
+      sessionClient(local.url, tokenStore).auth.verifyTwoFactor({ challenge: 'chal_abc123', code: '654321' }),
+    ).resolves.toBeUndefined()
+
+    expect(local.requests[0]!.method).toBe('POST')
+    expect(local.requests[0]!.path).toBe('/api/client/two-factor/verify')
+    expect(local.requests[0]!.json()).toEqual({ challenge: 'chal_abc123', code: '654321' })
+    expect(tokenStore.load()).toEqual(SESSION)
+  })
+
+  it('sends a recovery code instead, and omits `code` from the body entirely — the schema is strict', async () => {
+    const local = await start(always(200, SESSION))
+
+    await sessionClient(local.url).auth.verifyTwoFactor({ challenge: 'chal_abc123', recoveryCode: 'rec-code-1' })
+
+    expect(Object.keys(local.requests[0]!.json() as object).sort()).toEqual(['challenge', 'recovery_code'])
+    expect(local.requests[0]!.json()).toEqual({ challenge: 'chal_abc123', recovery_code: 'rec-code-1' })
+  })
+
+  it('no bearer is attached — the challenge is the credential, a session does not exist yet', async () => {
+    const local = await start(always(200, SESSION))
+
+    await sessionClient(local.url).auth.verifyTwoFactor({ challenge: 'chal_abc123', code: '654321' })
+
+    expect(local.requests[0]!.headers.authorization).toBeUndefined()
+  })
+
+  it('a wrong code is invalid_code with details.attempts_left, and nothing is stored', async () => {
+    const local = await start(
+      always(400, { code: 'invalid_code', message: 'Wrong code.', details: { attempts_left: 2 } } satisfies ApiError),
+    )
+    const tokenStore = new InMemoryTokenStore()
+
+    const error = await sessionClient(local.url, tokenStore)
+      .auth.verifyTwoFactor({ challenge: 'chal_abc123', code: '000000' })
+      .catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect((error as FleetlessError).code).toBe('invalid_code')
+    expect((error as FleetlessError).details).toEqual({ attempts_left: 2 })
+    expect(tokenStore.load()).toBeNull()
+  })
+})
+
+const TWO_FACTOR_SETUP = { secret: 'JBSWY3DPEHPK3PXP', otpauth_url: 'otpauth://totp/App:a@b.de?secret=JBSWY3DPEHPK3PXP' }
+
+describe('auth — setting an authenticator up (beginTwoFactorSetup, confirmTwoFactorSetup)', () => {
+  it('beginTwoFactorSetup with a sign-in challenge sends it and no bearer — the challenge IS the credential at this point', async () => {
+    const local = await start(always(200, TWO_FACTOR_SETUP))
+
+    await expect(sessionClient(local.url).auth.beginTwoFactorSetup({ challenge: 'chal_setup1' })).resolves.toEqual({
+      secret: 'JBSWY3DPEHPK3PXP',
+      otpauthUrl: 'otpauth://totp/App:a@b.de?secret=JBSWY3DPEHPK3PXP',
+    })
+
+    expect(local.requests[0]!.method).toBe('POST')
+    expect(local.requests[0]!.path).toBe('/api/client/two-factor/setup')
+    expect(local.requests[0]!.json()).toEqual({ challenge: 'chal_setup1' })
+    expect(local.requests[0]!.headers.authorization).toBeUndefined()
+  })
+
+  it('beginTwoFactorSetup with no challenge uses the CURRENT session instead — account settings, not sign-in', async () => {
+    const local = await start(always(200, TWO_FACTOR_SETUP))
+    const tokenStore = new InMemoryTokenStore()
+    tokenStore.save(SESSION)
+
+    await expect(sessionClient(local.url, tokenStore).auth.beginTwoFactorSetup()).resolves.toEqual({
+      secret: 'JBSWY3DPEHPK3PXP',
+      otpauthUrl: 'otpauth://totp/App:a@b.de?secret=JBSWY3DPEHPK3PXP',
+    })
+
+    expect(local.requests[0]!.json()).toEqual({})
+    expect(local.requests[0]!.headers.authorization).toBe('Bearer at1')
+  })
+
+  it('confirmTwoFactorSetup during sign-in sends the challenge, no bearer, and stores the session it answers', async () => {
+    const local = await start(always(200, { recovery_codes: ['r1', 'r2', 'r3'], session: SESSION }))
+    const tokenStore = new InMemoryTokenStore()
+
+    await expect(
+      sessionClient(local.url, tokenStore).auth.confirmTwoFactorSetup({ challenge: 'chal_setup1', code: '111111' }),
+    ).resolves.toEqual({ recoveryCodes: ['r1', 'r2', 'r3'] })
+
+    expect(local.requests[0]!.path).toBe('/api/client/two-factor/setup/confirm')
+    expect(local.requests[0]!.json()).toEqual({ challenge: 'chal_setup1', code: '111111' })
+    expect(local.requests[0]!.headers.authorization).toBeUndefined()
+    expect(tokenStore.load()).toEqual(SESSION)
+  })
+
+  it('confirmTwoFactorSetup from account settings sends the CURRENT session and stores the fresh session it answers', async () => {
+    const local = await start(always(200, { recovery_codes: ['r1', 'r2', 'r3'], session: NEW_SESSION }))
+    const tokenStore = new InMemoryTokenStore()
+    tokenStore.save(SESSION)
+
+    await expect(sessionClient(local.url, tokenStore).auth.confirmTwoFactorSetup({ code: '111111' })).resolves.toEqual({
+      recoveryCodes: ['r1', 'r2', 'r3'],
+    })
+
+    expect(local.requests[0]!.json()).toEqual({ code: '111111' })
+    expect(local.requests[0]!.headers.authorization).toBe('Bearer at1')
+    // Every other session ends, so this call's own session is replaced, not spared.
+    expect(tokenStore.load()).toEqual(NEW_SESSION)
+  })
+
+  it('confirmTwoFactorSetup surfaces a wrong code as invalid_code and stores nothing', async () => {
+    const local = await start(
+      always(400, { code: 'invalid_code', message: 'Wrong code.', details: { attempts_left: 4 } } satisfies ApiError),
+    )
+    const tokenStore = new InMemoryTokenStore()
+
+    const error = await sessionClient(local.url, tokenStore)
+      .auth.confirmTwoFactorSetup({ challenge: 'chal_setup1', code: '000000' })
+      .catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect((error as FleetlessError).code).toBe('invalid_code')
+    expect((error as FleetlessError).details).toEqual({ attempts_left: 4 })
+    expect(tokenStore.load()).toBeNull()
+  })
+})
+
+describe('auth — turning an authenticator off (disableTwoFactor)', () => {
+  it('sends the current code as a DELETE with the session bearer, and resolves on the 204', async () => {
+    const local = await start(always(204))
+    const tokenStore = new InMemoryTokenStore()
+    tokenStore.save(SESSION)
+
+    await expect(sessionClient(local.url, tokenStore).auth.disableTwoFactor('222222')).resolves.toBeUndefined()
+
+    expect(local.requests[0]!.method).toBe('DELETE')
+    expect(local.requests[0]!.path).toBe('/api/client/two-factor')
+    expect(local.requests[0]!.json()).toEqual({ code: '222222' } satisfies ClientTwoFactorDisableRequest)
+    expect(local.requests[0]!.headers.authorization).toBe('Bearer at1')
+  })
+
+  it('without a session, the call fails clearly — no bearer is attached, and the server\'s refusal surfaces as a FleetlessError', async () => {
+    const local = await start(always(401, { code: 'unauthorized', message: 'no credential' } satisfies ApiError))
+
+    const error = await sessionClient(local.url).auth.disableTwoFactor('222222').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect((error as FleetlessError).code).toBe('unauthorized')
+    expect(local.requests[0]!.headers.authorization).toBeUndefined()
   })
 })
 
@@ -549,6 +754,7 @@ describe('auth (server key)', () => {
     register: 'a public route that names its subject in the body and answers nothing',
     resendVerification: 'same — the address is the argument, not the caller',
     requestPasswordReset: 'same',
+    requestLoginCode: 'same — public, like register; the address is the argument, not the caller',
   }
 
   // A set guarded by an example is guarded by nothing — this was that
@@ -572,6 +778,11 @@ describe('auth (server key)', () => {
       changePassword: () => auth.changePassword('old', 'new-correct-horse-battery'),
       confirmPasswordReset: () => auth.confirmPasswordReset('t', 'new-correct-horse-battery'),
       acceptInvitation: () => auth.acceptInvitation({ token: 't', password: 'correct-horse-battery' }),
+      verifyLoginCode: () => auth.verifyLoginCode('a@b.de', '123456'),
+      verifyTwoFactor: () => auth.verifyTwoFactor({ challenge: 'c', code: '123456' }),
+      beginTwoFactorSetup: () => auth.beginTwoFactorSetup({ challenge: 'c' }),
+      confirmTwoFactorSetup: () => auth.confirmTwoFactorSetup({ challenge: 'c', code: '123456' }),
+      disableTwoFactor: () => auth.disableTwoFactor('123456'),
       beginOidcLogin: () => auth.beginOidcLogin({ slug: 'okta', redirectUri: 'https://app.example/cb' }),
       completeOidcLogin: () => auth.completeOidcLogin({ code: 'c', state: 's', expectedState: 's', codeVerifier: 'v' }),
       approveMcpInteraction: () => auth.approveMcpInteraction('i'),
@@ -600,22 +811,24 @@ describe('auth (server key)', () => {
   // The other half of the set above: the allowed names really are answered,
   // and the three public client-auth calls reach the routes they name. A
   // member could otherwise be parked in SERVER_KEY_ALLOWED and never called.
-  it('answers the three public client-auth calls on a server key, with no bearer attached', async () => {
+  it('answers the four public client-auth calls on a server key, with no bearer attached', async () => {
     const local = await start(always(202, undefined))
     const client = createClient({ apiUrl: local.url, appIdentifier: 'app_x', serverKey: 'flk_abc' })
 
     await expect(client.auth.register({ email: 'a@b.de', password: 'correct-horse-battery' })).resolves.toBeUndefined()
     await expect(client.auth.resendVerification('a@b.de')).resolves.toBeUndefined()
     await expect(client.auth.requestPasswordReset('a@b.de')).resolves.toBeUndefined()
+    await expect(client.auth.requestLoginCode('a@b.de')).resolves.toBeUndefined()
 
     expect(local.requests.map((r) => r.path)).toEqual([
       '/api/client/register',
       '/api/client/resend-verification',
       '/api/client/password/reset',
+      '/api/client/login/code',
     ])
     // The app identifier comes from the client, and the subject from the
     // argument — the caller is not the subject, which is the whole reason
-    // these three are allowed here.
+    // these four are allowed here.
     expect(local.requests[0]!.json()).toMatchObject({ app_identifier: 'app_x', email: 'a@b.de' })
     // `skipAuth`: these routes read no caller, so the key is not offered to
     // them. A server key travelling to a public route is a credential leaked
