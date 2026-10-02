@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [4.3.0] — 2026-10-02
+
 ### Added
 
 - **`client.auth.requestLoginCode(email)` / `verifyLoginCode(email, code)`** — the password-free sign-in: a six-digit code mailed to `email`, valid ten minutes, spent against `verifyLoginCode` for a `SignInResult` exactly like `login`. `requestLoginCode` resolves on the policy-allowed `202` whether or not the address names an account, same enumeration discipline as `register`/`resendVerification`/`requestPasswordReset`.
