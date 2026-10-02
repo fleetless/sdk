@@ -95,7 +95,7 @@ const RUN_PAGE: JobRunListResponse = {
     id: 'run1', robot_id: 'robot1', slug: 'dock', kind: 'action', state: 'succeeded',
     started_at: '2026-09-17T08:00:00.000Z', ended_at: '2026-09-17T08:00:04.000Z', duration_ms: 4000,
     result: { ok: true }, error: null,
-    actor: { kind: 'app_user', id: 'user1', label: 'sam@example.com' },
+    actor: { kind: 'app_user', id: 'user1', label: 'sam@example.com', name: null },
     seq: 41, progress: null, feedback: null,
   }],
   next_cursor: 41,

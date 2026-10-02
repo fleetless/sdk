@@ -76,7 +76,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@fleetless/contracts": "6.0.0-next.2",
+    "@fleetless/contracts": "6.0.0-next.3",
     "@types/node": "^22.20.1",
     "tsup": "^8.3.0",
     "typedoc": "0.28.20",
