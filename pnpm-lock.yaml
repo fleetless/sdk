@@ -13,8 +13,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@fleetless/contracts':
-        specifier: 6.0.0-next.3
-        version: 6.0.0-next.3
+        specifier: 6.0.0
+        version: 6.0.0
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -348,8 +348,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@fleetless/contracts@6.0.0-next.3':
-    resolution: {integrity: sha512-4O2N2I8jRgQTyAYcqwIXdWZ2OAoMrOdNrra1KLjfy+IA8m8stK+4DrUEUMdup/AmQYOrpW3FsObHL0BSFHbxbw==}
+  '@fleetless/contracts@6.0.0':
+    resolution: {integrity: sha512-Vxd+ucXXnncaB1oOHiBvXnhz/2L3/646POxb8TrcDOJYaCUUVxTwRZh4vwPl1/81fnHe0OeR7sabnZ3mR1bEaw==}
     engines: {node: '>=20'}
 
   '@gerrit0/mini-shiki@3.23.0':
@@ -1003,6 +1003,9 @@ packages:
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.27.7':
@@ -1161,9 +1164,9 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@fleetless/contracts@6.0.0-next.3':
+  '@fleetless/contracts@6.0.0':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.5
 
   '@gerrit0/mini-shiki@3.23.0':
     dependencies:
@@ -1778,3 +1781,5 @@ snapshots:
   yaml@2.9.0: {}
 
   zod@4.4.3: {}
+
+  zod@4.6.5: {}
