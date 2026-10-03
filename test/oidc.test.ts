@@ -234,7 +234,7 @@ describe('auth.oidcErrorFromCallback', () => {
   })
 
   // The set, not one example of it. A hand-picked code proves nothing about
-  // the other eleven; `clientOidcErrorCode` is the list the cloud actually
+  // the others; `clientOidcErrorCode` is the list the cloud actually
   // redirects with — reading it from contracts means a code added there
   // without a mapping here fails this test, not silently becomes
   // `unexpected_response`.
@@ -249,6 +249,19 @@ describe('auth.oidcErrorFromCallback', () => {
       expect(error!.code, code).toBe(code)
       expect(error!.message.length, code).toBeGreaterThan(0)
     }
+    expect(local.requests).toHaveLength(0)
+  })
+
+  // Named, not only covered by the loop above: the loop proves the mapping
+  // for whatever contracts this SDK pins, this proves the pin carries the
+  // plan-limit refusal (fleetless/fleetless#137).
+  it('maps plan_limit onto a FleetlessError carrying plan_limit', async () => {
+    const local = await start(always(200, {}))
+
+    const error = client(local.url).auth.oidcErrorFromCallback(new URLSearchParams('error=plan_limit&state=s'))
+
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect(error!.code).toBe('plan_limit')
     expect(local.requests).toHaveLength(0)
   })
 
