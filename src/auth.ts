@@ -1077,8 +1077,8 @@ async function decide(http: HttpClient, id: string, decision: 'approve' | 'deny'
  * copied into a list here: a code the contracts add later then arrives with
  * that code rather than as `unexpected_response`, and there is no second
  * spelling of the set for the two to drift apart on. The message is one
- * template for the same reason — a per-code sentence would be a twelve-entry
- * table nothing here could check against the platform's own wording.
+ * template for the same reason — a per-code sentence would be a table, one entry per
+ * code, that nothing here could check against the platform's own wording.
  */
 function oidcErrorFromCallbackParams(params: URLSearchParams): FleetlessError | null {
   const raw = params.get('error')

@@ -127,7 +127,9 @@ export type {
  * switch over the reasons: `no_access`, `email_taken`, `email_unverified`,
  * `domain_not_allowed`, `registration_closed`, `idp_unavailable`,
  * `exchange_failed`, `claims_incomplete`, `provider_misconfigured`,
- * `provider_disabled`, `invalid_request`, `quota_exceeded`.
+ * `provider_disabled`, `invalid_request`, `quota_exceeded` (the org is at its
+ * `max_end_users` protection ceiling), `plan_limit` (the org's plan has no
+ * room for another app user).
  *
  * **On its own line, with a JSDoc, rather than inside the block above.** It is
  * the only re-export here with no JSON Schema artifact behind it — the enum is

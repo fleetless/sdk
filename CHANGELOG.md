@@ -4,6 +4,14 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Added
+
+- **`oidcErrorFromCallback` recognises `plan_limit`**: a federated sign-in refused because the org's plan has no room for another app user. Before, the cloud sent `quota_exceeded` for it; that code now means only the `max_end_users` protection ceiling. Built against `@fleetless/contracts` 6.2.0-next.2.
+
+### Compatibility
+
+- An app on an SDK older than this release reads `?error=plan_limit` as `unexpected_response` and shows its generic error instead of the limit message. It happens only at the plan's app-user limit through OIDC.
+
 ## [4.3.0] — 2026-10-02
 
 ### Added
