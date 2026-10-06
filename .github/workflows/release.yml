@@ -146,7 +146,7 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app
         with:
           app-id: ${{ secrets.FLEETLESS_APP_ID }}
@@ -284,7 +284,7 @@ jobs:
           npm install -g npm@^11.5.1
           node -v
           npm -v
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app
         if: ${{ !inputs.prerelease }}
         with:
