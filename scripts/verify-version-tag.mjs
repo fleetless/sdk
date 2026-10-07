@@ -4,12 +4,18 @@
  * The one place the version rule lives. verify.yml's release call passes it
  * `v$VERSION` as argv[2] — the version the release PR already wrote into
  * package.json — and it fails unless the two agree, printing the npm
- * dist-tag the publish job must use: `latest` for X.Y.Z, `next` for a
+ * dist-tag the publish job must use: `staging` for X.Y.Z, `next` for a
  * pre-release (X.Y.Z-beta.1 and the like; a `-next.N` pre-release from the
  * `prerelease` input never reaches this script — its version exists only in
- * the job's package.json). Output is one line, `DIST_TAG=<latest|next>`, so
+ * the job's package.json). Output is one line, `DIST_TAG=<staging|next>`, so
  * a shell can `eval` it. CI_COMMIT_TAG is the same argument for anyone
  * running this by hand against an actual tag.
+ *
+ * **A final release goes out under `staging`, never `latest`.** `latest` is
+ * what `npm i @fleetless/sdk` installs, and it now names what runs in
+ * production: it moves when the staging generation that carries the release
+ * is promoted, in fleetless/fleetless's promote.yml. A release never touches
+ * `latest`, so there is nothing here to ask the registry about any more.
  *
  * Exit codes are distinct on purpose: 2 means "nothing to check" (no
  * version was handed over at all, which is a caller bug), 1 means "the
@@ -24,4 +30,4 @@ if (!m) { console.error(`verify-version-tag: "${tag}" is not vX.Y.Z or vX.Y.Z-<p
 const version = m[1] + (m[2] ?? '')
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 if (pkg.version !== version) { console.error(`verify-version-tag: tag ${tag} names ${version} but package.json says ${pkg.version}`); process.exit(1) }
-console.log(`DIST_TAG=${m[3] ? 'next' : 'latest'}`)
+console.log(`DIST_TAG=${m[3] ? 'next' : 'staging'}`)

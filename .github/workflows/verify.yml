@@ -65,7 +65,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # First, and deliberately, on a release call: the cheapest check
       # guarding a release. It writes `dist-tag.env`, the only thing telling
-      # publish whether this goes out as `latest` or as `next`. A release's
+      # publish whether this goes out as `staging` or as `next`. A release's
       # version is already in package.json (the release PR wrote it), and
       # verify-version-tag.mjs checks it. A pre-release's version exists
       # nowhere but here: it is set in this job's package.json, before the

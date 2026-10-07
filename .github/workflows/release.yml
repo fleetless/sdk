@@ -11,8 +11,11 @@
 # passes; that merge starts this workflow again (the `pull_request: closed`
 # trigger), which tags the merged commit, verify.yml runs again on it and
 # packs the tarball, and exactly that tarball is published — npm never gets
-# bytes the suite did not check. Then app-starter is asked to open the pull
-# request that pins the new version.
+# bytes the suite did not check. A final release goes out under the dist-tag
+# `staging`, never `latest`, and the run ends by asking the ops repository to
+# record it for staging; `latest` moves, and app-starter is asked to open the
+# pull request that pins it, when that release is promoted to production
+# (fleetless/fleetless promote.yml).
 #
 # `prerelease`, from any branch: X.Y.Z-next.N under the dist-tag `next`, for
 # a branch elsewhere that must pin this change before it is final. No tag,
@@ -240,7 +243,15 @@ jobs:
   # linking this version to this commit and this run — shown on the package
   # page, checked by `npm audit signatures`. It needs id-token: write,
   # npm >= 11.5.1, node >= 22.14 and a cloud-hosted runner (self-hosted is
-  # not supported).
+  # not supported), and the publisher is configured on npmjs.com against
+  # this repository and this workflow's filename. Renaming this file breaks
+  # publishing until the publisher is updated there.
+  #
+  # That publisher may publish and nothing else: "Allow npm dist-tag" stays
+  # off for it on npmjs.com, so no run of this workflow can move `latest`.
+  # npm is pinned at >= 11.21.0 all the same, the first version whose trusted
+  # publishing covers `npm dist-tag`: it is what the promotion uses, and what
+  # this workflow would need if the move ever had to run here.
   publish:
     needs: [prepare, release-commit, verify]
     if: ${{ !cancelled() && needs.verify.result == 'success' }}
@@ -281,7 +292,7 @@ jobs:
           fi
       - name: npm new enough for trusted publishing
         run: |
-          npm install -g npm@^11.5.1
+          npm install -g npm@^11.21.0
           node -v
           npm -v
       - uses: actions/create-github-app-token@v3
@@ -291,7 +302,10 @@ jobs:
           app-id: ${{ secrets.FLEETLESS_APP_ID }}
           private-key: ${{ secrets.FLEETLESS_APP_PRIVATE_KEY }}
           owner: fleetless
-          repositories: sdk,app-starter
+          # `fleetless` for the dispatch below: a repository_dispatch needs
+          # contents: write on the repository it is sent to. app-starter is
+          # no longer asked here — it is asked on promotion instead.
+          repositories: sdk,fleetless
           permission-contents: write
       - name: tag
         if: ${{ !inputs.prerelease }}
@@ -327,24 +341,43 @@ jobs:
           fi
           node repo/.github/release/release.mjs npm-wait --package @fleetless/sdk --version "$VERSION"
           echo "done=true" >> "$GITHUB_OUTPUT"
-      - name: ask app-starter to pin it
-        id: dispatch
+      # A final release is on npm under `staging` now and nowhere else. The
+      # ops repository records it into the staging manifest
+      # (record-release.yml); promote.yml moves `latest` to it when that
+      # staging generation is promoted to production, and only then asks
+      # app-starter to open the pull request that pins it (sdk-bump.yml). A
+      # dispatch is a request: the ops repository checks the tag and the
+      # integrity against this repository and npm before it writes anything.
+      # A pre-release is nobody's candidate for production and is not
+      # recorded.
+      - name: ask the ops repository to record it for staging
+        id: record
         if: ${{ !inputs.prerelease }}
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           set -euo pipefail
-          node repo/.github/release/release.mjs dispatch --component sdk --version "$VERSION" --commit "$COMMIT"
+          integrity="$(npm view "@fleetless/sdk@$VERSION" dist.integrity)"
+          if [ -z "$integrity" ]; then
+            echo "FATAL: npm lists no dist.integrity for @fleetless/sdk@$VERSION; nothing to record." >&2
+            exit 1
+          fi
+          # `-f`, not `-F`: every field is a string, and `-F` would turn a
+          # value that looks like a number or a boolean into one.
+          gh api repos/fleetless/fleetless/dispatches -f event_type=release \
+            -f "client_payload[component]=sdk" -f "client_payload[version]=$VERSION" \
+            -f "client_payload[commit]=$COMMIT" -f "client_payload[integrity]=$integrity" \
+            -f "client_payload[run_url]=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           echo "done=true" >> "$GITHUB_OUTPUT"
       - name: summary
         if: always()
         env:
           # The summary runs under `if: always()`, so it reports what the steps
           # before it reached rather than asserting it. The three states are
-          # genuinely different: nothing published, published but nobody told
-          # app-starter (which a person then has to dispatch), and both.
+          # genuinely different: nothing published, published but staging does
+          # not know it (which a person then has to dispatch), and both.
           PUBLISHED: ${{ steps.publish.outputs.done }}
-          DISPATCHED: ${{ steps.dispatch.outputs.done }}
+          RECORDED: ${{ steps.record.outputs.done }}
         run: |
           {
             echo "### @fleetless/sdk $VERSION — ${{ job.status }}"
@@ -354,9 +387,12 @@ jobs:
               echo "- not on npm: the run did not finish the publish step"
             elif [ "$PRERELEASE" = true ]; then
               echo "- a pre-release under \`next\`: no tag, no changelog entry"
-            elif [ "$DISPATCHED" = true ]; then
-              echo "- tag v$VERSION; app-starter was asked to open the pull request that pins it"
             else
-              echo "- npm serves $VERSION, but app-starter was not asked to pin it: dispatch it by hand"
+              echo "- tag v$VERSION, on npm under \`staging\`; \`latest\` moves, and app-starter is asked to pin it, when it is promoted to production (fleetless/fleetless promote.yml)"
+              if [ "$RECORDED" = true ]; then
+                echo "- dispatched \`release\` to fleetless/fleetless: record-release.yml records it into staging"
+              else
+                echo "- NOT dispatched to fleetless/fleetless: staging does not know this version. Run Release again; npm is not published to twice"
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
