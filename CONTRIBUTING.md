@@ -92,10 +92,10 @@ method signature or what a method sends *before* you write it, so we can
 tell you what else has to move with it.
 
 **CI runs on GitHub Actions**, in this repository
-(`.github/workflows/verify.yml`) — the suite, on every push and every pull
-request. `release.yml` (the **Release** button) calls that same file on the
-commit it publishes, so a release is never checked by a different pipeline
-than a push.
+(`.github/workflows/verify.yml`) — the suite, on every pull request and every
+push to main. `release.yml` (the **Release** button) calls that same file on
+the commit it publishes, so a release is never checked by a different
+pipeline than a push.
 
 **Your pull request is verified, a fork's included** — the same suite, the
 same file. GitHub holds a first-time contributor's first run until a

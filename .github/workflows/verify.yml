@@ -1,6 +1,7 @@
-# The suite on every push and every pull request, and the same file a release
-# calls: a release is never verified by a different pipeline than a push. The
-# release passes the commit it is about to publish and that commit's version.
+# The suite on every pull request and every push to main, and the same file a
+# release calls: a release is never verified by a different pipeline than a
+# push. The release passes the commit it is about to publish and that
+# commit's version.
 #
 # Hosted runners, because this repository is public — a pull request is a
 # stranger's code, and hosted minutes are free here.
