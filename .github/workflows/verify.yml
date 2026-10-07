@@ -8,7 +8,7 @@ name: verify
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   # The release calls this file on the commit it is about to publish, with
   # that commit's version: this run packs the tarball npm receives.
@@ -21,6 +21,17 @@ on:
         description: X.Y.Z (a release), or X.Y.Z-next.N (a pre-release)
         type: string
         required: true
+
+# A new push to a pull request cancels the run of the push before it
+# (fleetless/fleetless#296). Only `pull_request` runs of the same pull
+# request share a group; every other run (a push to `main`, a manual run,
+# the release's `workflow_call`) gets a group of its own, `run_id`, and is
+# never cancelled. A called workflow's concurrency is evaluated with the
+# caller's event, and a release that runs on `pull_request: closed` must
+# not land in the pull request's group: hence `!= 'closed'`.
+concurrency:
+  group: verify-${{ github.event_name == 'pull_request' && github.event.action != 'closed' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
