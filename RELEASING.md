@@ -4,8 +4,8 @@ Maintainer notes: the development setup, the checks, and the release
 procedure. This file is not part of the published package.
 
 **CI runs on GitHub Actions**, in two files.
-`.github/workflows/verify.yml` is the suite, on every push and every pull
-request, and the same file a release calls on the commit it is about to
+`.github/workflows/verify.yml` is the suite, on every pull request and every
+push to main, and the same file a release calls on the commit it is about to
 publish; `.github/workflows/release.yml` is the **Release** button — it never
 runs on a push — and calls `verify.yml` on that commit, so a release is never
 checked by a different pipeline than a push. It is the only publish path this
