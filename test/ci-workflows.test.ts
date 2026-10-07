@@ -145,3 +145,78 @@ describe('CI runs on hosted runners only', () => {
     expect(messages).toEqual([])
   })
 })
+
+const DIST_TAG_FLAG = '--tag "$DIST_TAG"'
+
+interface PublishLine {
+  file: string
+  line: number
+  text: string
+}
+
+/**
+ * Every line that runs `npm publish`, in a workflow's text. A line whose
+ * `npm publish` sits behind a `#` is prose about publishing, not a publish.
+ */
+function publishLines(file: string, text: string): PublishLine[] {
+  const found: PublishLine[] = []
+  text.split('\n').forEach((line, index) => {
+    const publishAt = line.search(/\bnpm publish\b/)
+    if (publishAt === -1) return
+    const hashAt = line.indexOf('#')
+    if (hashAt !== -1 && hashAt < publishAt) return
+    found.push({ file, line: index + 1, text: line.trim() })
+  })
+  return found
+}
+
+/**
+ * A publish without `--tag` goes to `latest`: that is npm's default. The
+ * flag has to be on the `npm publish` line itself, spelled exactly — a
+ * literal tag, an unquoted variable or a flag moved to a continuation line
+ * all count as missing, since nothing here could tell them from a mistake.
+ */
+function untaggedPublishes(file: string, text: string): string[] {
+  return publishLines(file, text)
+    .filter((p) => !p.text.includes(DIST_TAG_FLAG))
+    .map((p) => `${p.file}:${p.line} publishes without ${DIST_TAG_FLAG}: ${p.text}`)
+}
+
+/**
+ * A final release must never land on `latest`: `latest` moves only when the
+ * release is promoted to production. `scripts/verify-version-tag.mjs`
+ * answers `DIST_TAG=staging` for a final tag, and
+ * `test/verify-version-tag.test.ts` holds it to that. The other half is the
+ * publish step handing that answer to npm. For a version npm has not seen
+ * before, that one flag is all that keeps it off `latest`; without a check
+ * here, an edit that drops it publishes the next release as `latest` with
+ * every suite green.
+ */
+describe('every npm publish names its dist-tag', () => {
+  const workflowTexts = workflowFiles.map((file) => ({
+    file,
+    text: readFileSync(join(WORKFLOWS_DIR, file), 'utf8'),
+  }))
+  const releaseYml = workflowTexts.find((w) => w.file === 'release.yml')
+
+  it('finds the publish in release.yml, not nothing', () => {
+    expect(releaseYml).toBeDefined()
+    expect(publishLines('release.yml', releaseYml?.text ?? '').length).toBeGreaterThan(0)
+  })
+
+  it(`every npm publish line carries ${DIST_TAG_FLAG}`, () => {
+    const offenders = workflowTexts.flatMap((w) => untaggedPublishes(w.file, w.text))
+    expect(offenders).toEqual([])
+  })
+
+  it('the check sees a publish whose flag is gone or changed', () => {
+    // Held against lines it must and must not accept, so that it cannot go
+    // blind while the test above stays green.
+    const publish = '            npm publish "$1" --access public'
+    expect(untaggedPublishes('x.yml', `${publish} ${DIST_TAG_FLAG}`)).toEqual([])
+    expect(untaggedPublishes('x.yml', '# npm publish needs a hosted runner')).toEqual([])
+    for (const flag of ['', ' --tag latest', ' --tag $DIST_TAG', ' \\\n              --tag "$DIST_TAG"']) {
+      expect(untaggedPublishes('x.yml', `${publish}${flag}`)).toHaveLength(1)
+    }
+  })
+})
