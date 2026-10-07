@@ -4,6 +4,16 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Changed
+
+- **Final releases publish under the npm dist-tag `staging`;** `latest` moves
+  when the release is promoted to production, and never backwards. `npm i
+  @fleetless/sdk` therefore installs what runs in production. A release that
+  is still being tested is installable by its version number or as
+  `@fleetless/sdk@staging`. Pre-releases stay under `next`. app-starter is
+  asked to pin the new version on promotion, not on release. No wire shape
+  changes.
+
 ## [4.4.0] — 2026-10-04
 
 ### Added

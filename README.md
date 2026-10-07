@@ -47,6 +47,10 @@ Fleetless is in closed beta. The waiting list is at
 npm i @fleetless/sdk
 ```
 
+That installs `latest`, the version the Fleetless cloud runs in production. A
+newer release may already be on npm under the dist-tag `staging` while it is
+being tested; `next` carries pre-releases.
+
 You need an app identifier and an **app user** of that app, both created in
 the console. A console login is a Fleetless user, a different identity space,
 and will not sign in here.

@@ -116,20 +116,26 @@ and npm runs no prepare lifecycle for a tarball argument.)
    that version and sets it in `package.json`. The required `verify` check
    passes it and it merges itself — nothing to review or click.
 3. The merge commit is tagged, `verify.yml` runs again on it and packs the
-   tarball, and `publish` ships exactly that tarball. app-starter is then
-   asked to open the pull request that pins the new version.
+   tarball, and `publish` ships exactly that tarball **under the npm dist-tag
+   `staging`, never `latest`**, and ends by asking the ops repository
+   (fleetless/fleetless) to record it for staging. `latest` — what `npm i
+   @fleetless/sdk` installs — moves, and app-starter is asked to open the
+   pull request that pins it, only when that release is promoted to
+   production (fleetless/fleetless `promote.yml`), and never backwards. A
+   pre-release is not recorded; it stays under `next` as before.
 4. Check the registry yourself. The `publish` job already asserts the first
    line; this is the independent look, and the second line is the one that
-   says which dist-tag moved.
+   says which dist-tag the release went out under.
 
    ```sh
    npm view @fleetless/sdk@X.Y.Z version   # answers X.Y.Z
-   npm view @fleetless/sdk dist-tags       # latest -> X.Y.Z, or next -> X.Y.Z
+   npm view @fleetless/sdk dist-tags       # staging -> X.Y.Z (until promoted), or next -> X.Y.Z
    ```
 
    Name the version. A bare `npm view @fleetless/sdk version` resolves the
-   `latest` dist-tag, so after a pre-release publish it answers the *previous*
-   stable release and reads as a publish that did not happen.
+   `latest` dist-tag, so right after a release it still answers the
+   *previous* promoted version, not the one that just published — that is
+   expected now, not a sign the publish failed.
 
 **`prerelease`**, tickable from any branch: publishes `X.Y.Z-next.N` under the
 npm dist-tag `next`, for a branch elsewhere that must pin this change before
@@ -148,15 +154,16 @@ cannot republish, only pick up from wherever it stopped.
 can succeed and the job still die later — most likely inside `npm-wait`
 (`release.mjs`), which polls the registry for up to 20 minutes before giving
 up, because npm's own metadata lists a version before its tarball is served.
-A run that dies there, or before the app-starter dispatch, has already
+A run that dies there, or before the ops-repository dispatch, has already
 published. **Run Release again** rather than `npm publish` by hand: `npm-state`
 sees npm already has the version, skips `npm publish`, and goes straight to
 the wait and the dispatch — nothing is published twice. As long as `main`'s
 `HEAD` still carries the tag this release already created, Release continues
 that exact release. If `main` moved on in the meantime, a fresh press starts
-the *next* version instead, and this one's pin has to be sent by hand:
-dispatch app-starter's `sdk-bump.yml` with the version that never got asked
-for.
+the *next* version instead, and this one's record has to be sent by hand:
+dispatch a `release` event to fleetless/fleetless with component `sdk`, the
+version, the commit and its npm integrity — the same payload the "ask the
+ops repository to record it for staging" step in `release.yml` sends.
 
 On a timeout, `npm-wait` names what it saw:
 
