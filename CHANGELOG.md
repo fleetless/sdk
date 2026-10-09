@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [4.5.0] — 2026-10-09
+
 ### Changed
 
 - **Final releases publish under the npm dist-tag `staging`;** `latest` moves
