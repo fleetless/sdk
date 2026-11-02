@@ -165,6 +165,8 @@ export interface SignInMethods {
   password: boolean
   /** Whether `requestLoginCode`/`verifyLoginCode` is on for this app. */
   emailCode: boolean
+  /** The app policy, not the signed-in person's enrollment state. */
+  twoFactor: 'off' | 'optional' | 'required'
 }
 
 /** One sign-in button on the app's own login screen, as `listProviders()` lists it. */
@@ -474,7 +476,7 @@ export interface AuthApi {
    */
   listProviders(): Promise<ProviderButton[]>
   /**
-   * Which credential-based sign-in methods this app has on, for drawing a
+   * Which credential-based sign-in methods and two-factor policy this app has on, for drawing a
    * password field, a "get a code by email" link, or both, on your own login
    * screen — the other half of what the login screen needs, the federated
    * buttons being `listProviders()`'s own answer.
@@ -947,7 +949,7 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
       // reads off the response is the only difference.
       const query = new URLSearchParams({ app_identifier: appIdentifier })
       const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
-      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code }
+      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code, twoFactor: response.two_factor }
     },
     async beginOidcLogin(input) {
       const state = generateState()
@@ -1232,7 +1234,7 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string, opt
       // same no-caller read.
       const query = new URLSearchParams({ app_identifier: appIdentifier })
       const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
-      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code }
+      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code, twoFactor: response.two_factor }
     },
     async beginOidcLogin() {
       serverKeyRefusal('beginOidcLogin', 'a federated sign-in is inherently an app user\'s browser flow')

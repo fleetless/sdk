@@ -43,6 +43,7 @@ describe('auth.listProviders', () => {
     const body: ClientProviderListResponse = {
       providers: [{ slug: 'okta', name: 'Okta' }, { slug: 'entra', name: 'Microsoft Entra' }],
       sign_in_methods: { password: false, email_code: false },
+      two_factor: 'off',
     }
     const local = await start(always(200, body))
 
@@ -66,14 +67,21 @@ describe('auth.listProviders', () => {
 })
 
 describe('auth.signInMethods', () => {
-  it('reads the password/email_code flags off the same response listProviders reads, camelCased', async () => {
+  it('maps each two-factor policy beside the sign-in methods', async () => {
+    let twoFactor: 'off' | 'optional' | 'required' = 'off'
     const body: ClientProviderListResponse = {
       providers: [],
       sign_in_methods: { password: true, email_code: true },
+      two_factor: twoFactor,
     }
-    const local = await start(always(200, body))
+    const local = await start(() => ({ status: 200, body: { ...body, two_factor: twoFactor } }))
 
-    await expect(client(local.url).auth.signInMethods()).resolves.toEqual({ password: true, emailCode: true })
+    for (const policy of ['off', 'optional', 'required'] as const) {
+      twoFactor = policy
+      await expect(client(local.url).auth.signInMethods()).resolves.toEqual({
+        password: true, emailCode: true, twoFactor,
+      })
+    }
 
     const sent = local.requests[0]!
     expect(sent.method).toBe('GET')

@@ -842,14 +842,14 @@ describe('auth (server key)', () => {
       request.path === '/api/client/me'
         ? { status: 200, body: { ...IDENTITY, kind: 'server_key', app_user_id: null, server_key_id: 'sk1' } }
         : request.path === '/api/client/providers'
-          ? { status: 200, body: { providers: [{ slug: 'okta', name: 'Okta' }], sign_in_methods: { password: true, email_code: false } } }
+          ? { status: 200, body: { providers: [{ slug: 'okta', name: 'Okta' }], sign_in_methods: { password: true, email_code: false }, two_factor: 'optional' } }
           : { status: 200, body: INTERACTION },
     )
     const client = createClient({ apiUrl: local.url, appIdentifier: 'app_x', serverKey: 'flk_abc' })
 
     await expect(client.auth.me()).resolves.toMatchObject({ kind: 'server_key' })
     await expect(client.auth.listProviders()).resolves.toEqual([{ slug: 'okta', name: 'Okta' }])
-    await expect(client.auth.signInMethods()).resolves.toEqual({ password: true, emailCode: false })
+    await expect(client.auth.signInMethods()).resolves.toEqual({ password: true, emailCode: false, twoFactor: 'optional' })
     await expect(client.auth.mcpInteraction('int_123')).resolves.toEqual(INTERACTION)
     // Pure and local — it parses a query string and never asks anything.
     expect(client.auth.oidcErrorFromCallback(new URLSearchParams('error=no_access'))?.code).toBe('no_access')
