@@ -91,6 +91,14 @@ Node 22 and newer, or server-side with a server key instead of a user session.
 Node 20 does REST fine but ships no global `WebSocket`, so realtime there needs
 one passed in through the `WebSocket` option.
 
+Before drawing your app's sign-in screen, read its public policy:
+
+```ts
+const { password, emailCode, twoFactor } = await client.auth.signInMethods()
+// twoFactor is 'off', 'optional' or 'required'; it is app policy, not enrollment.
+// listProviders() separately returns only federated sign-in buttons.
+```
+
 ## 📚 Documentation
 
 Everything past this point lives at **[docs.fleetless.dev](https://docs.fleetless.dev)**.

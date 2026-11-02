@@ -4,6 +4,10 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Added
+
+- `auth.signInMethods()` now returns required `twoFactor: 'off' | 'optional' | 'required'` beside `password` and `emailCode`. It reads the app policy from the public providers response; `listProviders()` still returns provider buttons only. Built against `@fleetless/contracts` 12.0.0.
+
 ## [4.5.0] — 2026-10-09
 
 ### Changed
