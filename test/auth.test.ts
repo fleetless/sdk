@@ -866,6 +866,23 @@ describe('auth (server key)', () => {
     expect(byPath['/api/client/providers']).toBeUndefined()
   })
 
+  // The server-key client maps the same response the same way: a missing or
+  // unknown policy is a failed policy read (`null`), never a guessed one, and
+  // the sign-in methods are still answered — still without a credential.
+  it.each([
+    ['a missing', undefined],
+    ['an unknown', 'enabled'],
+  ])('answers twoFactor: null for %s two_factor on a server key, and still maps the sign-in methods', async (_label, twoFactor) => {
+    const body: Record<string, unknown> = { providers: [], sign_in_methods: { password: true, email_code: false } }
+    if (twoFactor !== undefined) body.two_factor = twoFactor
+    const local = await start(always(200, body))
+    const client = createClient({ apiUrl: local.url, appIdentifier: 'app_x', serverKey: 'flk_abc' })
+
+    await expect(client.auth.signInMethods()).resolves.toStrictEqual({ password: true, emailCode: false, twoFactor: null })
+    expect(local.requests[0]!.path).toBe('/api/client/providers')
+    expect(local.requests[0]!.headers.authorization).toBeUndefined()
+  })
+
   it('never attempts a refresh — a server key that is rejected as expired just fails', async () => {
     const local = await start(always(401, { code: 'token_expired', message: 'expired' } satisfies ApiError))
     const client = createClient({ apiUrl: local.url, appIdentifier: 'app_x', serverKey: 'flk_abc' })

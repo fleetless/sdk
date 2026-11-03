@@ -91,6 +91,32 @@ describe('auth.signInMethods', () => {
     expect(sent.headers.authorization).toBeUndefined()
   })
 
+  // A cloud that predates the field sends no `two_factor`, and nothing at
+  // runtime stops a value outside the three. Neither may come back as a
+  // policy: not the raw value under a type that promises one of three, and
+  // not a guessed `'off'`, which would hide a `required` one. `null` is the
+  // failed policy read; the sign-in methods and the buttons still come back,
+  // so a login screen keeps working against that cloud.
+  it.each([
+    ['a missing', undefined],
+    ['a null', null],
+    ['an unknown', 'enabled'],
+    ['a differently cased', 'Required'],
+    ['an empty', ''],
+    ['a boolean', true],
+  ])('answers twoFactor: null for %s two_factor, and still maps the sign-in methods', async (_label, twoFactor) => {
+    const body: Record<string, unknown> = {
+      providers: [{ slug: 'okta', name: 'Okta' }],
+      sign_in_methods: { password: false, email_code: true },
+    }
+    if (twoFactor !== undefined) body.two_factor = twoFactor
+    const local = await start(always(200, body))
+
+    await expect(client(local.url).auth.signInMethods()).resolves.toStrictEqual({ password: false, emailCode: true, twoFactor: null })
+    await expect(client(local.url).auth.listProviders()).resolves.toEqual([{ slug: 'okta', name: 'Okta' }])
+    for (const sent of local.requests) expect(sent.headers.authorization).toBeUndefined()
+  })
+
   it('surfaces the 404 an unknown app identifier gets', async () => {
     const local = await start(always(404, { code: 'not_found', message: 'No app with that identifier.' } satisfies ApiError))
 

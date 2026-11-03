@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import {
+  appTwoFactorPolicy,
   clientOidcErrorCode,
   type ClientAcceptInvitationRequest,
   type ClientIdentity,
@@ -165,8 +166,18 @@ export interface SignInMethods {
   password: boolean
   /** Whether `requestLoginCode`/`verifyLoginCode` is on for this app. */
   emailCode: boolean
-  /** The app policy, not the signed-in person's enrollment state. */
-  twoFactor: 'off' | 'optional' | 'required'
+  /**
+   * The app's two-factor policy — `'off'`, `'optional'` or `'required'` —
+   * not the signed-in person's enrollment state.
+   *
+   * **`null` when the cloud answered no policy this SDK recognises**: a cloud
+   * that predates the field, or a value outside those three. Treat `null` as
+   * a failed policy read — offer no two-factor action, let the person retry —
+   * and never as `'off'`: the SDK does not guess a policy, and the cloud
+   * still enforces the real one at sign-in. `password` and `emailCode` are
+   * read either way, so a login screen keeps working against such a cloud.
+   */
+  twoFactor: 'off' | 'optional' | 'required' | null
 }
 
 /** One sign-in button on the app's own login screen, as `listProviders()` lists it. */
@@ -485,6 +496,10 @@ export interface AuthApi {
    * (`GET /api/client/providers`) — each call is its own request, picking a
    * different field out of the same response; call both if your login
    * screen needs both.
+   *
+   * `twoFactor` is `null` when the cloud's answer carries no policy this SDK
+   * recognises (an older cloud, or an unknown value) — a failed policy read,
+   * not `'off'`. `password` and `emailCode` are answered either way.
    */
   signInMethods(): Promise<SignInMethods>
   /**
@@ -949,7 +964,7 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
       // reads off the response is the only difference.
       const query = new URLSearchParams({ app_identifier: appIdentifier })
       const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
-      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code, twoFactor: response.two_factor }
+      return signInMethodsFrom(response)
     },
     async beginOidcLogin(input) {
       const state = generateState()
@@ -1050,6 +1065,31 @@ export function createSessionAuth(http: HttpClient, tokenStore: TokenStore, appI
     async revokeMcpGrant(clientId) {
       await http.request(`/api/client/mcp/grants/${pathSegment(clientId)}`, { method: 'DELETE', expectEmptyBody: true })
     },
+  }
+}
+
+/**
+ * `signInMethods()`'s answer, built from the providers response — one mapping
+ * for the session client and the server-key client, so the two cannot drift.
+ *
+ * **`two_factor` is checked, not trusted.** The type says it is always one of
+ * `off | optional | required`, but the type describes the contract this SDK
+ * was built against, not the cloud that answered: one that predates the field
+ * sends none, and nothing at runtime stops a value outside the three. Either
+ * becomes `twoFactor: null` — a policy this SDK could not read — rather than
+ * `undefined` or an unchecked string under a type that promises one of three,
+ * and rather than a guessed default: reading a missing policy as `'off'`
+ * would hide a `required` one. The set comes from `appTwoFactorPolicy` at
+ * runtime, as `clientOidcErrorCode` does for `oidcErrorFromCallback`, so there
+ * is no second spelling of it here. The sign-in methods are mapped as before;
+ * a cloud without the policy still draws its login screen.
+ */
+function signInMethodsFrom(response: ClientProviderListResponse): SignInMethods {
+  const policy = appTwoFactorPolicy.safeParse(response.two_factor)
+  return {
+    password: response.sign_in_methods.password,
+    emailCode: response.sign_in_methods.email_code,
+    twoFactor: policy.success ? policy.data : null,
   }
 }
 
@@ -1234,7 +1274,7 @@ export function createServerKeyAuth(http: HttpClient, appIdentifier: string, opt
       // same no-caller read.
       const query = new URLSearchParams({ app_identifier: appIdentifier })
       const response: ClientProviderListResponse = await http.request(`/api/client/providers?${query.toString()}`, { skipAuth: true })
-      return { password: response.sign_in_methods.password, emailCode: response.sign_in_methods.email_code, twoFactor: response.two_factor }
+      return signInMethodsFrom(response)
     },
     async beginOidcLogin() {
       serverKeyRefusal('beginOidcLogin', 'a federated sign-in is inherently an app user\'s browser flow')
