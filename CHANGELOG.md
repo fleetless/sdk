@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [4.6.1] — 2026-11-03
+
 ### Fixed
 
 - **`auth.signInMethods()` checks `twoFactor` instead of passing the wire value through.** A cloud that predates the policy field sends none, and a value outside `off | optional | required` was handed on unchecked under a type that promised one of the three. Both now come back as `twoFactor: null`, and the type is `'off' | 'optional' | 'required' | null`; the SDK never substitutes a default. Treat `null` as a failed policy read — offer no two-factor action and let the person retry, never read it as `'off'`; the cloud still enforces its own policy at sign-in. `password` and `emailCode` are mapped as before, so a login screen keeps working against an older cloud, and `listProviders()` is unchanged. Code that assigns `twoFactor` to the three-value union now has to handle `null`.
