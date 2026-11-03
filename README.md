@@ -96,6 +96,8 @@ Before drawing your app's sign-in screen, read its public policy:
 ```ts
 const { password, emailCode, twoFactor } = await client.auth.signInMethods()
 // twoFactor is 'off', 'optional' or 'required'; it is app policy, not enrollment.
+// It is null when the cloud sends no policy the SDK recognises (an older cloud):
+// treat that as a failed read and offer no two-factor action, never as 'off'.
 // listProviders() separately returns only federated sign-in buttons.
 ```
 

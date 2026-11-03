@@ -4,6 +4,21 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Fixed
+
+- **`auth.signInMethods()` checks `twoFactor` instead of passing the wire value through.** A cloud that predates the policy field sends none, and a value outside `off | optional | required` was handed on unchecked under a type that promised one of the three. Both now come back as `twoFactor: null`, and the type is `'off' | 'optional' | 'required' | null`; the SDK never substitutes a default. Treat `null` as a failed policy read — offer no two-factor action and let the person retry, never read it as `'off'`; the cloud still enforces its own policy at sign-in. `password` and `emailCode` are mapped as before, so a login screen keeps working against an older cloud, and `listProviders()` is unchanged. Code that assigns `twoFactor` to the three-value union now has to handle `null`.
+
+### Also in 4.6.0
+
+4.6.0 moved the bundled `@fleetless/contracts` from 6.2.0 to 12.0.0 and named only `twoFactor`. For code using this SDK, the jump also brought:
+
+- **`FleetlessErrorCode` gains eight codes through `ErrorCode`:** `operator_verified_stopped`, `job_state_conflict`, `billing_unavailable`, `payment_provider_unavailable`, `history_migrating`, `billing_documents_unavailable`, `support_read_only` and `support_forbidden`. Only `operator_verified_stopped` reaches an app through this SDK: it is the `error.code` of a final `lost` job that an org Owner released after verifying that the robot is physically stopped. The other seven refuse org billing, slug renames, held-job recovery and console support sessions; an app user's session or a server key does not receive them. An exhaustive `switch` over `ErrorCode` gains the cases.
+- **`ClientRobotListItem.bridge_state`**, as `robots.list()` resolves it, gains an optional, nullable `health_reason`; its one value, `'job_query_unanswered'`, means the cloud saw the bridge leave a job query unanswered. Older clouds omit it.
+- **`job_lost` is defined more precisely:** a final `lost` job whose terminal goal result could not be recovered within the bounded wait, or a loss with no more specific cause; `error.message` says which. `action_server_lost` and `job_unknown_to_bridge` keep their meaning. No code or shape changed.
+- Doc comments name the MCP actions `robots.list` and `robots.describe` instead of the former tool names. No shape changed.
+
+Nothing else this SDK re-exports or parses at runtime changed.
+
 ## [4.6.0] — 2026-11-03
 
 ### Added
