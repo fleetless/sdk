@@ -9,6 +9,7 @@ import type {
 } from '@fleetless/contracts'
 import { createCollectionSubscriptions, type CollectionEvent, type CollectionSubscribeOptions } from './collection-subscriptions.js'
 import { FleetlessError } from './errors.js'
+import { filterJson } from './filter-json.js'
 import { pathSegment, type HttpClient } from './http.js'
 import type { RealtimeChannel } from './realtime.js'
 
@@ -71,6 +72,9 @@ export interface CollectionListOptions {
    * system fields `id`, `robot_id`, `created_at`, `updated_at` and
    * `created_by`. Nested at most 3 levels, 50 conditions in all. A filter the
    * cloud cannot read rejects `validation_error` naming the part that is wrong.
+   * The filter has to be plain JSON; a reactive proxy (Vue, Svelte, MobX) is
+   * fine, and a value JSON cannot hold (a BigInt, a function, a number that is
+   * not finite, a cycle) rejects `invalid_option` before anything is sent.
    */
   filter?: Record<string, unknown>
   /**
@@ -164,6 +168,9 @@ export interface CollectionsApi {
    * One page of a collection's records, filtered, searched and sorted by the
    * cloud. In a collection that belongs to robots the caller sees only the
    * records of robots they reach.
+   *
+   * Rejects `invalid_option`, before anything is sent, for a `filter` that is
+   * not plain JSON.
    */
   list(collection: string, options?: CollectionListOptions): Promise<CollectionPage>
   /**
@@ -247,7 +254,7 @@ const COLLECTIONS_PATH = '/api/client/collections'
 function listQueryString(options: CollectionListOptions): string {
   const params = new URLSearchParams()
   if (options.search !== undefined) params.set('search', options.search)
-  if (options.filter !== undefined) params.set('filter', JSON.stringify(options.filter))
+  if (options.filter !== undefined) params.set('filter', filterJson(options.filter))
   if (options.sort !== undefined && options.sort.length > 0) params.set('sort', options.sort.join(','))
   if (options.limit !== undefined) params.set('limit', String(options.limit))
   if (options.cursor !== undefined) params.set('cursor', options.cursor)

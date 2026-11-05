@@ -133,6 +133,33 @@ describe('collections.list', () => {
     expect(query.has('count')).toBe(false)
   })
 
+  it('writes a filter that is a Proxy, as a Vue reactive or a Svelte $state hands one over', async () => {
+    const local = await start(() => ({ status: 200, body: { records: [], next_cursor: null } }))
+
+    await keyClient(local).collections.list('logbook', { filter: new Proxy({ severity: { eq: 'warning' } }, {}) })
+
+    expect(JSON.parse(local.requests[0]!.query.get('filter')!)).toEqual({ severity: { eq: 'warning' } })
+  })
+
+  it.each([
+    ['a BigInt', () => ({ n: { gt: 10n } })],
+    ['a function', () => ({ n: { gt: () => 1 } })],
+    ['a number that is not finite', () => ({ n: { gt: Number.NaN } })],
+    ['a cycle', () => {
+      const filter: Record<string, unknown> = {}
+      filter.self = filter
+      return filter
+    }],
+  ])('rejects a filter holding %s with invalid_option, as subscribe does, and sends nothing', async (_what, make) => {
+    const local = await start(() => ({ status: 200, body: { records: [], next_cursor: null } }))
+
+    const error = await keyClient(local).collections.list('logbook', { filter: make() }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect(error).toMatchObject({ code: 'invalid_option' })
+    expect(local.requests).toHaveLength(0)
+  })
+
   it('leaves out an empty sort or expand, and a count or deleted that is false, instead of sending them blank', async () => {
     const local = await start(() => ({ status: 200, body: { records: [], next_cursor: null } }))
 

@@ -7,6 +7,7 @@ import type {
   CollectionsSchemaPublished,
 } from '@fleetless/contracts'
 import { FleetlessError } from './errors.js'
+import { copyFilter } from './filter-json.js'
 import type { RealtimeChannel } from './realtime.js'
 
 /**
@@ -70,30 +71,6 @@ export interface CollectionSubscribeOptions {
 export interface CollectionSubscriptions {
   /** See `CollectionsApi.subscribe`. */
   subscribe(collection: string, options: CollectionSubscribeOptions, onEvent: (event: CollectionEvent) => void): () => void
-}
-
-/**
- * A copy of the filter that nothing the caller does to its own object later
- * can reach. The filter is JSON by contract, so it is copied as JSON:
- * `structuredClone` throws a `DataCloneError` on a Proxy, which is what a Vue
- * `reactive`, a Svelte `$state` or a MobX observable hands over. What JSON
- * cannot hold is refused here, with the cause named, instead of being
- * dropped or turned into `null` on the wire.
- */
-function copyFilter(filter: Record<string, unknown>): Record<string, unknown> {
-  try {
-    return JSON.parse(
-      JSON.stringify(filter, (_key, value: unknown) => {
-        const kind = typeof value
-        if (kind === 'function' || kind === 'symbol' || kind === 'bigint') throw new TypeError(`a ${kind} is not JSON`)
-        if (kind === 'number' && !Number.isFinite(value)) throw new TypeError(`${String(value)} is not JSON`)
-        return value
-      }),
-    ) as Record<string, unknown>
-  } catch (error) {
-    const why = error instanceof Error ? error.message : String(error)
-    throw new FleetlessError('invalid_option', `The filter of a collection subscription has to be plain JSON, and this one is not: ${why}.`)
-  }
 }
 
 /** One open subscription: the wire name it goes by and what to tell the caller. */

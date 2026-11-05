@@ -49,9 +49,9 @@ import type { ErrorCode } from '@fleetless/contracts'
  *   catch by message. **A fifth:** an id, slug or key that is only dots (`.`
  *   or `..`) in any call that puts one into a path. It cannot name anything,
  *   and as a path segment it would climb out of its route; no spelling of it
- *   survives the URL parser. **A sixth:** a `collections.subscribe` `filter`
- *   that is not plain JSON (a BigInt, a function, a number that is not
- *   finite, a cycle). All of them are refused before any request is
+ *   survives the URL parser. **A sixth:** a `collections.list` or
+ *   `collections.subscribe` `filter` that is not plain JSON (a BigInt, a
+ *   function, a number that is not finite, a cycle). All of them are refused before any request is
  *   sent — as a rejection, since those methods are `async`; `subscribe` is
  *   not, so it throws. A client-side mistake to fix, not something a
  *   server response could ever produce, which is why this code belongs here
