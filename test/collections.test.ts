@@ -358,6 +358,25 @@ describe('collections request safety and credentials', () => {
     ])
   })
 
+  it('refuses a collection or a record id of only dots without sending a request, since `..` would climb out of the route', async () => {
+    const local = await start(() => ({ status: 200, body: record() }))
+    const { collections } = keyClient(local)
+
+    for (const dots of ['.', '..']) {
+      const calls = [
+        () => collections.list(dots),
+        () => collections.create(dots, { text: 'x' }),
+        () => collections.get('logbook', dots),
+        () => collections.update('logbook', dots, { text: 'x' }),
+        () => collections.delete('logbook', dots),
+        () => collections.history('logbook', dots),
+      ]
+      for (const call of calls) await expect(call()).rejects.toMatchObject({ code: 'invalid_option' })
+    }
+
+    expect(local.requests).toEqual([])
+  })
+
   it('a server-key client sends its Authorization header', async () => {
     const local = await start(() => ({ status: 200, body: { records: [], next_cursor: null } }))
 

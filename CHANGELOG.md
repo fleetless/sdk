@@ -11,6 +11,10 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
   - Realtime: `subscribe(collection, { robot?, filter?, onError?, onSchemaPublished? }, onEvent)` follows a collection's records over the client's channel, subscribes again after every reconnect and returns the function that ends it. There is no first snapshot: subscribe first, then `list`.
   - New exports: the types `CollectionsApi`, `CollectionListOptions`, `CollectionPage`, `CollectionHistoryOptions`, `CollectionHistoryPage`, `CollectionRecord`, `CollectionRevision`, `CollectionDefinition`, `CollectionEvent` and `CollectionSubscribeOptions`, and the `error.details` schemas of the refusals specific to records, with their types: `recordChangedDetails`, `recordReferencedDetails`, `referenceInvalidDetails` and `requiredMissingDetails`.
 
+### Fixed
+
+- **An id, slug or key of `.` or `..` is refused instead of climbing out of its route.** `encodeURIComponent` leaves a value that is only dots alone, and the URL parser `fetch` runs resolves `..` (and `%2E%2E`) as a dot-segment, so `client.collections.get('..', id)` reached a different route with the caller's credentials. Every call that puts an id, slug or key into a path now rejects with `invalid_option` before a request is built. Values that merely contain dots (`a.b`, `...`) are unchanged.
+
 ### Removed
 
 - Nothing in this SDK's API. `robot_details` is no longer a built-in datapoint, and the platform has no route to set it: a robot's description is data an app keeps in its own collections now. Reading or subscribing to that slug is refused like any other slug the robot does not expose, with `unknown_datapoint`, and the SDK relays it as it does every code.
