@@ -130,6 +130,13 @@ export type {
   // contracts artifact the docs could alias.
   ClientRobotListItem,
   McpRobotDatasheet,
+  // The parts of what `collections.definitions` resolves with and of a
+  // record: one field's definition (a form is drawn from it), how a
+  // collection relates to robots, and who made a change. Named so an app does
+  // not have to write `CollectionDefinition['fields'][string]`.
+  CollectionField,
+  CollectionBinding,
+  CollectionActor,
 } from '@fleetless/contracts'
 
 /**

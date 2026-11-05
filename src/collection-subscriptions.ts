@@ -114,11 +114,18 @@ export function createCollectionSubscriptions(channel: RealtimeChannel): Collect
 
   channel.on('collections_schema_published', (frame) => {
     const { version } = frame as unknown as CollectionsSchemaPublished
-    for (const subscription of [...live.values()]) subscription.options.onSchemaPublished?.(version)
+    for (const [requestId, subscription] of [...live]) {
+      // A callback earlier in this pass may have ended this subscription.
+      if (live.get(requestId) !== subscription) continue
+      subscription.options.onSchemaPublished?.(version)
+    }
   })
 
   channel.onAuthFailed((error) => {
-    for (const subscription of [...live.values()]) subscription.options.onError?.(error)
+    for (const [requestId, subscription] of [...live]) {
+      if (live.get(requestId) !== subscription) continue
+      subscription.options.onError?.(error)
+    }
   })
 
   return {
@@ -128,7 +135,10 @@ export function createCollectionSubscriptions(channel: RealtimeChannel): Collect
 
       const frame: CollectionSubscribe = { type: 'collection_subscribe', request_id: requestId, collection }
       if (options.robot !== undefined) frame.robot_id = options.robot
-      if (options.filter !== undefined) frame.filter = options.filter
+      // A copy: the frame is built once and sent again after every reconnect,
+      // so a caller that reuses its filter object for the next `list` must not
+      // change what the subscription follows.
+      if (options.filter !== undefined) frame.filter = structuredClone(options.filter)
 
       // Whether the cloud has been told on the current connection. A subscribe
       // cancelled before it was sent has nothing to cancel on the other side.

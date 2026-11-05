@@ -176,6 +176,16 @@ describe('collections.get', () => {
     expect(failure).toMatchObject({ code: 'not_found' })
   })
 
+  it('by robot relays robot_not_attached for a robot the app does not have, instead of calling it not_found', async () => {
+    const local = await start(() => ({ status: 400, body: { code: 'robot_not_attached', message: 'The robot is not attached to this app.' } }))
+
+    const failure = await keyClient(local).collections.get('robot_settings', { robot: ROBOT }).catch((e: unknown) => e)
+
+    expect(failure).toBeInstanceOf(FleetlessError)
+    expect(failure).toMatchObject({ code: 'robot_not_attached', status: 400 })
+    expect(local.requests).toHaveLength(1)
+  })
+
   it('by robot also takes expand', async () => {
     const local = await start(() => ({ status: 200, body: { records: [record()], next_cursor: null } }))
 
@@ -331,6 +341,16 @@ describe('collections errors', () => {
 
     expect(failure).toMatchObject({ code: 'record_referenced', status: 409 })
     expect(recordReferencedDetails.parse((failure as FleetlessError).details)).toEqual(details)
+  })
+
+  it('a 429 rate_limited write rejects with details.retry_after_ms and is sent once, not retried', async () => {
+    const local = await start(() => ({ status: 429, body: { code: 'rate_limited', message: 'Too many writes.', details: { retry_after_ms: 800 } } }))
+
+    const failure = await keyClient(local).collections.create('logbook', { text: 'x' }, { robot: ROBOT }).catch((e: unknown) => e)
+
+    expect(failure).toBeInstanceOf(FleetlessError)
+    expect(failure).toMatchObject({ code: 'rate_limited', status: 429, details: { retry_after_ms: 800 } })
+    expect(local.requests).toHaveLength(1)
   })
 
   it('a 400 reference_invalid names the field and why', async () => {

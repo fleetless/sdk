@@ -101,6 +101,33 @@ describe('collections.subscribe', () => {
     expect(requestIdOf(0).length).toBeLessThanOrEqual(64)
   })
 
+  it('keeps its own copy of the filter, so mutating the caller\'s object changes neither the first send nor a resend', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = loggedInClient()
+      const filter = { severity: { eq: 'warning' } }
+      client.collections.subscribe('logbook', { filter }, vi.fn())
+
+      await vi.advanceTimersByTimeAsync(0)
+      currentSocket().simulateOpen()
+      // Reused for the next `list` before the subscription has to be sent again.
+      filter.severity.eq = 'fault'
+      currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+      expect(subscribeFrames()[0]).toMatchObject({ filter: { severity: { eq: 'warning' } } })
+
+      currentSocket().simulateClose()
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.advanceTimersByTimeAsync(0)
+      currentSocket().simulateOpen()
+      currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+
+      expect(FakeWebSocket.instances).toHaveLength(2)
+      expect(subscribeFrames()[0]).toMatchObject({ filter: { severity: { eq: 'warning' } } })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('sends neither robot_id nor filter when the options carry none', async () => {
     const client = loggedInClient()
 
@@ -248,6 +275,34 @@ describe('collections.subscribe', () => {
     }
   })
 
+  it('a subscription the caller ended is not revived by a reconnect', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = loggedInClient()
+      const onEvent = vi.fn()
+      const unsubscribe = client.collections.subscribe('logbook', { robot: ROBOT }, onEvent)
+
+      await vi.advanceTimersByTimeAsync(0)
+      currentSocket().simulateOpen()
+      currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+      const requestId = requestIdOf(0)
+      unsubscribe()
+
+      currentSocket().simulateClose()
+      await vi.advanceTimersByTimeAsync(500)
+      await vi.advanceTimersByTimeAsync(0)
+      currentSocket().simulateOpen()
+      currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+
+      expect(FakeWebSocket.instances).toHaveLength(2)
+      expect(subscribeFrames()).toEqual([])
+      currentSocket().simulateMessage(event(requestId, 'updated', { record: RECORD }))
+      expect(onEvent).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('unsubscribe sends collection_unsubscribe once and is idempotent', async () => {
     const client = loggedInClient()
     const onEvent = vi.fn()
@@ -335,6 +390,19 @@ describe('collections.subscribe', () => {
     expect(onKept).toHaveBeenCalledExactlyOnceWith(7)
   })
 
+  it('onSchemaPublished does not reach a subscription that a callback earlier in the same pass ended', async () => {
+    const client = loggedInClient()
+    const onSecond = vi.fn()
+    let unsubscribeSecond: () => void = () => {}
+    client.collections.subscribe('logbook', { onSchemaPublished: () => unsubscribeSecond() }, vi.fn())
+    unsubscribeSecond = client.collections.subscribe('components', { onSchemaPublished: onSecond }, vi.fn())
+    await authenticate()
+
+    currentSocket().simulateMessage({ type: 'collections_schema_published', version: 8 })
+
+    expect(onSecond).not.toHaveBeenCalled()
+  })
+
   it('reports a failed authentication to every live subscription through onError', async () => {
     // No session was ever saved: the channel cannot obtain a credential.
     const client = createClient({
@@ -353,5 +421,22 @@ describe('collections.subscribe', () => {
     expect(onErrorA).toHaveBeenCalledTimes(1)
     expect(onErrorA.mock.calls[0]![0]).toMatchObject({ code: 'no_session' })
     expect(onErrorB).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed authentication does not reach a subscription that an earlier onError ended', async () => {
+    const client = createClient({
+      apiUrl: 'https://api.fleetless.dev',
+      appIdentifier: 'app_x',
+      fetch: vi.fn() as unknown as typeof fetch,
+      WebSocket: FakeWebSocket as unknown as typeof WebSocket,
+    })
+    const onErrorSecond = vi.fn<(error: FleetlessError) => void>()
+    let unsubscribeSecond: () => void = () => {}
+    client.collections.subscribe('logbook', { onError: () => unsubscribeSecond() }, vi.fn())
+    unsubscribeSecond = client.collections.subscribe('components', { onError: onErrorSecond }, vi.fn())
+
+    await flush()
+
+    expect(onErrorSecond).not.toHaveBeenCalled()
   })
 })

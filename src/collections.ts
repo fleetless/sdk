@@ -146,7 +146,8 @@ export interface CollectionHistoryPage {
  * - `reference_invalid` (400): `referenceInvalidDetails` — the reference field and why it was refused.
  * - `record_changed` (409): `recordChangedDetails` — the revision the record is at now.
  * - `record_referenced` (409): `recordReferencedDetails` — the collections that still point at the record, with counts.
- * - `validation_error` (400), `plan_limit` (409) and `rate_limited` (429) as elsewhere.
+ * - `validation_error` (400) and `plan_limit` (409) as elsewhere.
+ * - `rate_limited` (429): `RateLimitDetails` — `retry_after_ms`, how long to wait before writing again. Surfaced, never retried.
  */
 export interface CollectionsApi {
   /**
@@ -172,9 +173,11 @@ export interface CollectionsApi {
   get(collection: string, id: string, options?: { expand?: string[] }): Promise<CollectionRecord>
   /**
    * The record of one robot in a `one_per_robot` collection, which always
-   * has exactly one. Rejects `not_found` when the caller reaches no such
-   * record — the robot is not attached to the app, or the caller does not
-   * reach it.
+   * has exactly one. Rejects `robot_not_attached` when the robot is not
+   * attached to the app or the caller does not reach it, and `not_found`
+   * when the collection holds no record for it. Use it on a `one_per_robot`
+   * collection only: on a `per_robot` collection, which holds many records
+   * per robot, it returns the first of them.
    */
   get(collection: string, by: { robot: string }, options?: { expand?: string[] }): Promise<CollectionRecord>
   /**
