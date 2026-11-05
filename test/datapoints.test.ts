@@ -90,6 +90,37 @@ describe('datapoints.get', () => {
   })
 })
 
+describe('a slug that used to be built in', () => {
+  // The platform no longer has a `robot_details` datapoint: a robot's
+  // description lives in an app's collections now. Nothing in the SDK ever
+  // named it, so the name is an ordinary slug that does not exist, refused
+  // with the code every other unknown slug gets and relayed as it came.
+  it('is read like any other slug, and its refusal is relayed as unknown_datapoint', async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | RequestInfo) => {
+      expect(String(input)).toBe('https://api.fleetless.dev/api/robots/robot1/datapoints/robot_details')
+      return errorResponse('unknown_datapoint', 'No datapoint robot_details on this robot.')
+    })
+    const client = loggedInClient(fetchImpl as unknown as typeof fetch)
+
+    await expect(client.datapoints.get('robot1', 'robot_details')).rejects.toMatchObject({ code: 'unknown_datapoint', status: 404 })
+  })
+
+  it('is subscribed to like any other slug, and the refusal reaches onError as unknown_datapoint', async () => {
+    const client = loggedInClient(vi.fn() as unknown as typeof fetch)
+    const onError = vi.fn()
+
+    client.datapoints.subscribe('robot1', 'robot_details', { onEvent: vi.fn(), onError })
+    await authenticate()
+    expect(currentSocket().sent).toContainEqual({ type: 'subscribe', robot_id: 'robot1', slug: 'robot_details' })
+
+    currentSocket().simulateMessage({ type: 'subscribe_error', robot_id: 'robot1', slug: 'robot_details', code: 'unknown_datapoint', message: 'No such datapoint.' })
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(FleetlessError)
+    expect(onError.mock.calls[0][0]).toMatchObject({ code: 'unknown_datapoint' })
+  })
+})
+
 describe('datapoints.history', () => {
   it('requests raw samples with only `from` set, and omits every unset optional field from the query', async () => {
     const response: HistorySamplesResponse = {
@@ -222,11 +253,11 @@ describe('datapoints.subscribe', () => {
     const onErrorB = vi.fn()
     const onEventB = vi.fn()
 
-    client.datapoints.subscribe('robot1', 'robot-details', { onEvent: vi.fn(), onError: onErrorA })
+    client.datapoints.subscribe('robot1', 'cpu-temperature', { onEvent: vi.fn(), onError: onErrorA })
     client.datapoints.subscribe('robot1', 'battery-percentage', { onEvent: onEventB, onError: onErrorB })
     await authenticate()
 
-    currentSocket().simulateMessage({ type: 'subscribe_error', robot_id: 'robot1', slug: 'robot-details', code: 'forbidden', message: 'no access' })
+    currentSocket().simulateMessage({ type: 'subscribe_error', robot_id: 'robot1', slug: 'cpu-temperature', code: 'forbidden', message: 'no access' })
 
     expect(onErrorA).toHaveBeenCalledTimes(1)
     expect(onErrorA.mock.calls[0][0]).toMatchObject({ code: 'forbidden', message: 'no access' })
@@ -269,14 +300,14 @@ describe('datapoints.subscribe', () => {
     const onEventA = vi.fn()
     const onEventB = vi.fn()
 
-    const subA = client.datapoints.subscribe('robot1', 'robot-details', { onEvent: onEventA })
-    const subB = client.datapoints.subscribe('robot1', 'robot-details', { onEvent: onEventB })
+    const subA = client.datapoints.subscribe('robot1', 'cpu-temperature', { onEvent: onEventA })
+    const subB = client.datapoints.subscribe('robot1', 'cpu-temperature', { onEvent: onEventB })
     await authenticate()
 
     // Exactly one wire subscribe for the shared key, not one per caller.
     expect(currentSocket().sent.filter((f) => f.type === 'subscribe')).toHaveLength(1)
 
-    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'robot-details', value: 1, timestamp_ms: 1 })
+    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'cpu-temperature', value: 1, timestamp_ms: 1 })
     expect(onEventA).toHaveBeenCalledTimes(1)
     expect(onEventB).toHaveBeenCalledTimes(1)
 
@@ -284,14 +315,14 @@ describe('datapoints.subscribe', () => {
     subA.unsubscribe()
     // The other subscriber is still live: no unsubscribe frame sent yet, and it keeps receiving events.
     expect(currentSocket().sent).toEqual([])
-    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'robot-details', value: 2, timestamp_ms: 2 })
+    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'cpu-temperature', value: 2, timestamp_ms: 2 })
     expect(onEventA).toHaveBeenCalledTimes(1) // unchanged
     expect(onEventB).toHaveBeenCalledTimes(2)
 
     subB.unsubscribe()
     // Last subscriber gone: now the wire unsubscribe is sent, exactly once.
-    expect(currentSocket().sent).toEqual([{ type: 'unsubscribe', robot_id: 'robot1', slug: 'robot-details' }])
-    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'robot-details', value: 3, timestamp_ms: 3 })
+    expect(currentSocket().sent).toEqual([{ type: 'unsubscribe', robot_id: 'robot1', slug: 'cpu-temperature' }])
+    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'cpu-temperature', value: 3, timestamp_ms: 3 })
     expect(onEventB).toHaveBeenCalledTimes(2) // unchanged
   })
 
@@ -300,15 +331,15 @@ describe('datapoints.subscribe', () => {
     const onEventA = vi.fn()
     const onEventB = vi.fn()
 
-    const subA = client.datapoints.subscribe('robot1', 'robot-details', { onEvent: onEventA })
-    client.datapoints.subscribe('robot1', 'robot-details', { onEvent: onEventB })
+    const subA = client.datapoints.subscribe('robot1', 'cpu-temperature', { onEvent: onEventA })
+    client.datapoints.subscribe('robot1', 'cpu-temperature', { onEvent: onEventB })
     await authenticate()
 
     subA.unsubscribe()
     subA.unsubscribe() // repeated — must not affect B's count
     currentSocket().sent.length = 0
 
-    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'robot-details', value: 1, timestamp_ms: 1 })
+    currentSocket().simulateMessage({ type: 'datapoint', robot_id: 'robot1', slug: 'cpu-temperature', value: 1, timestamp_ms: 1 })
     expect(onEventB).toHaveBeenCalledTimes(1)
     expect(currentSocket().sent).toEqual([]) // B is still the sole subscriber; no unsubscribe frame yet
   })

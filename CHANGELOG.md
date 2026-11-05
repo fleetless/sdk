@@ -4,6 +4,21 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Added
+
+- **`client.collections`: an app's own data, over REST and realtime.** A developer defines collections (typed fields, a binding to robots, and which roles may read, create, update and delete) in the console; the app reads and writes their records as the signed-in user or with a server key.
+  - REST: `definitions()` (the readable collections with their fields and what the caller may do), `list(collection, options)` (search, filter, sort, `limit`, `cursor`, `count`, `expand`, `robot`, `deleted`; resolves `{ records, nextCursor, total? }`), `get` by id or by `{ robot }` for a `one_per_robot` collection, `create`, `update` (with `expectedRevision`), `delete` and `history` (resolves `{ revisions, nextBeforeSeq, purged }`).
+  - Realtime: `subscribe(collection, { robot?, filter?, onError?, onSchemaPublished? }, onEvent)` follows a collection's records over the client's channel, subscribes again after every reconnect and returns the function that ends it. There is no first snapshot: subscribe first, then `list`.
+  - New exports: the types `CollectionsApi`, `CollectionListOptions`, `CollectionPage`, `CollectionHistoryOptions`, `CollectionHistoryPage`, `CollectionRecord`, `CollectionRevision`, `CollectionDefinition`, `CollectionEvent` and `CollectionSubscribeOptions`, and the `error.details` schemas of the refusals specific to records, with their types: `recordChangedDetails`, `recordReferencedDetails`, `referenceInvalidDetails` and `requiredMissingDetails`.
+
+### Removed
+
+- Nothing in this SDK's API. `robot_details` is no longer a built-in datapoint, and the platform has no route to set it: a robot's description is data an app keeps in its own collections now. Reading or subscribing to that slug is refused like any other slug the robot does not expose, with `unknown_datapoint`, and the SDK relays it as it does every code.
+
+### Compatibility
+
+- `FleetlessErrorCode` gains `collection_not_found`, `collection_removed`, `record_changed`, `record_referenced`, `reference_invalid`, `required_missing` and `robot_not_attached` through `ErrorCode` (and `confirmation_required`, which an app never receives). An exhaustive `switch` over `ErrorCode` gains the cases.
+
 ## [4.6.1] — 2026-11-03
 
 ### Fixed
