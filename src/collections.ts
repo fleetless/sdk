@@ -233,6 +233,9 @@ export interface CollectionsApi {
    *
    * Returns the function that ends the subscription. It is safe to call more
    * than once, and after the cloud ended the subscription itself.
+   *
+   * Throws `invalid_option`, before anything is sent, for a `filter` that is
+   * not plain JSON.
    */
   subscribe(collection: string, options: CollectionSubscribeOptions, onEvent: (event: CollectionEvent) => void): () => void
 }

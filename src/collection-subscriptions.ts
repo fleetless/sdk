@@ -40,7 +40,11 @@ export interface CollectionSubscribeOptions {
    * Only records matching this filter are delivered. It is the `filter` of
    * `collections.list` — the same grammar, at most 3 levels and 50
    * conditions — and a record that stops matching is announced once as
-   * `removed`.
+   * `removed`. The SDK keeps a copy, so changing the object afterwards
+   * changes nothing; a reactive proxy (Vue, Svelte, MobX) is fine. The filter
+   * has to be plain JSON: a value JSON cannot hold (a BigInt, a function, a
+   * number that is not finite, a cycle) makes `subscribe` throw
+   * `invalid_option` before anything is sent.
    */
   filter?: Record<string, unknown>
   /**
@@ -66,6 +70,30 @@ export interface CollectionSubscribeOptions {
 export interface CollectionSubscriptions {
   /** See `CollectionsApi.subscribe`. */
   subscribe(collection: string, options: CollectionSubscribeOptions, onEvent: (event: CollectionEvent) => void): () => void
+}
+
+/**
+ * A copy of the filter that nothing the caller does to its own object later
+ * can reach. The filter is JSON by contract, so it is copied as JSON:
+ * `structuredClone` throws a `DataCloneError` on a Proxy, which is what a Vue
+ * `reactive`, a Svelte `$state` or a MobX observable hands over. What JSON
+ * cannot hold is refused here, with the cause named, instead of being
+ * dropped or turned into `null` on the wire.
+ */
+function copyFilter(filter: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return JSON.parse(
+      JSON.stringify(filter, (_key, value: unknown) => {
+        const kind = typeof value
+        if (kind === 'function' || kind === 'symbol' || kind === 'bigint') throw new TypeError(`a ${kind} is not JSON`)
+        if (kind === 'number' && !Number.isFinite(value)) throw new TypeError(`${String(value)} is not JSON`)
+        return value
+      }),
+    ) as Record<string, unknown>
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error)
+    throw new FleetlessError('invalid_option', `The filter of a collection subscription has to be plain JSON, and this one is not: ${why}.`)
+  }
 }
 
 /** One open subscription: the wire name it goes by and what to tell the caller. */
@@ -130,15 +158,17 @@ export function createCollectionSubscriptions(channel: RealtimeChannel): Collect
 
   return {
     subscribe(collection, options, onEvent) {
+      // A copy: the frame is built once and sent again after every reconnect,
+      // so a caller that reuses its filter object for the next `list` must not
+      // change what the subscription follows. Made first, so a filter that is
+      // refused leaves no request id and no channel behind.
+      const filter = options.filter === undefined ? undefined : copyFilter(options.filter)
       counter += 1
       const requestId = `c${counter}`
 
       const frame: CollectionSubscribe = { type: 'collection_subscribe', request_id: requestId, collection }
       if (options.robot !== undefined) frame.robot_id = options.robot
-      // A copy: the frame is built once and sent again after every reconnect,
-      // so a caller that reuses its filter object for the next `list` must not
-      // change what the subscription follows.
-      if (options.filter !== undefined) frame.filter = structuredClone(options.filter)
+      if (filter !== undefined) frame.filter = filter
 
       // Whether the cloud has been told on the current connection. A subscribe
       // cancelled before it was sent has nothing to cancel on the other side.

@@ -13,6 +13,7 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ### Fixed
 
+- **`collections.subscribe` accepts a filter that is a reactive proxy.** The SDK copied the filter with `structuredClone`, which throws a `DataCloneError` on a Proxy such as a Vue `reactive`, a Svelte `$state` or a MobX observable. The filter is JSON, so it is now copied as JSON. A value JSON cannot hold (a BigInt, a function, a number that is not finite, a cycle) makes `subscribe` throw `invalid_option` before anything is sent, instead of being dropped or sent as `null`.
 - **An id, slug or key of `.` or `..` is refused instead of climbing out of its route.** `encodeURIComponent` leaves a value that is only dots alone, and the URL parser `fetch` runs resolves `..` (and `%2E%2E`) as a dot-segment, so `client.collections.get('..', id)` reached a different route with the caller's credentials. Every call that puts an id, slug or key into a path now rejects with `invalid_option` before a request is built. Values that merely contain dots (`a.b`, `...`) are unchanged.
 
 ### Removed

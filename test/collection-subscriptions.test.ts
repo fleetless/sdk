@@ -128,6 +128,41 @@ describe('collections.subscribe', () => {
     }
   })
 
+  it('copies a filter that is a Proxy, as a Vue reactive or a Svelte $state hands one over', async () => {
+    const client = loggedInClient()
+    // `structuredClone` throws a DataCloneError on a Proxy; the filter is JSON, so it is copied as JSON.
+    const filter = new Proxy({ severity: { eq: 'warning' } }, {})
+
+    client.collections.subscribe('logbook', { filter }, vi.fn())
+    await authenticate()
+
+    expect(subscribeFrames()[0]).toMatchObject({ filter: { severity: { eq: 'warning' } } })
+  })
+
+  it.each([
+    ['a BigInt', () => ({ n: { gt: 10n } })],
+    ['a function', () => ({ n: { gt: () => 1 } })],
+    ['a number that is not finite', () => ({ n: { gt: Number.NaN } })],
+    ['a cycle', () => {
+      const filter: Record<string, unknown> = {}
+      filter.self = filter
+      return filter
+    }],
+  ])('refuses a filter holding %s with invalid_option, before anything is sent', async (_what, make) => {
+    const client = loggedInClient()
+    let thrown: unknown
+    try {
+      client.collections.subscribe('logbook', { filter: make() }, vi.fn())
+    } catch (error) {
+      thrown = error
+    }
+    await flush()
+
+    expect(thrown).toBeInstanceOf(FleetlessError)
+    expect(thrown).toMatchObject({ code: 'invalid_option' })
+    expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+
   it('sends neither robot_id nor filter when the options carry none', async () => {
     const client = loggedInClient()
 
