@@ -65,7 +65,7 @@ const IDENTITY: ClientIdentity = {
   app_user_id: 'u1',
   server_key_id: null,
   app_id: 'app1',
-  role_id: 'role1',
+  role: { key: 'operate', name: 'Operate' },
   email: 'a@b.de',
   two_factor_enabled: false,
 }
@@ -232,6 +232,39 @@ describe('auth — login, logout and the session', () => {
     expect(local.requests[0]!.method).toBe('GET')
     expect(local.requests[0]!.path).toBe('/api/client/me')
     expect(local.requests[0]!.headers.authorization).toBe('Bearer at1')
+  })
+
+  it('me() hands the role back untouched: its key and its display name', async () => {
+    const withRole: ClientIdentity = { ...IDENTITY, role: { key: 'wartung', name: 'Wartung & Service' } }
+    const local = await start(always(200, withRole))
+    const tokenStore = new InMemoryTokenStore()
+    tokenStore.save(SESSION)
+
+    const identity = await sessionClient(local.url, tokenStore).auth.me()
+
+    expect(identity.role).toEqual({ key: 'wartung', name: 'Wartung & Service' })
+    expect(identity).toEqual(withRole)
+  })
+
+  it('me() resolves role: null for a developer, who no role filters', async () => {
+    const developer: ClientIdentity = {
+      kind: 'developer',
+      developer_id: 'd1',
+      app_user_id: null,
+      server_key_id: null,
+      app_id: null,
+      role: null,
+      email: 'dev@b.de',
+      two_factor_enabled: null,
+    }
+    const local = await start(always(200, developer))
+    const tokenStore = new InMemoryTokenStore()
+    tokenStore.save(SESSION)
+
+    const identity = await sessionClient(local.url, tokenStore).auth.me()
+
+    expect(identity.role).toBeNull()
+    expect(identity).toEqual(developer)
   })
 
   it('changePassword authenticates with the OLD token and stores the fresh pair the route re-issues', async () => {

@@ -385,6 +385,11 @@ export interface AuthApi {
    * Who the caller turned out to be, without decoding a token client-side —
    * which is how apps end up trusting claims nobody verified.
    *
+   * `role` is `{ key, name }` of the organization role the caller holds, and
+   * `null` when there is none to name: a server key, and an app user whose
+   * role has since been deleted, who can still sign in but reaches nothing.
+   * Show `name`; compare `key`.
+   *
    * Throws the SDK's own `no_session` **before any request is sent** when
    * nothing is stored — which is exactly the state a sign-in step leaves a
    * caller in while a second factor is still pending (see `SignInResult`):

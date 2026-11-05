@@ -4,6 +4,32 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: `ClientIdentity.role_id` is replaced by `role: { key, name } | null`.** It is what `auth.me()` resolves and what the realtime channel holds after authentication. `key` is the organization role's key, the one `fleetless.yaml` and the organization's role list write; `name` is its display name. `role` is `null` where there is no role to name: for a server key, and for an app user whose role has since been deleted, who can still sign in and reaches nothing. Code that read `role_id` reads `role?.key` now.
+- **Breaking: the datasheet's capabilities say `job_history` where they said `action_history`,** without an alias. `robots.describe()` resolves `capabilities: { job_history, assets }`; `job_history` is what `jobs.history()` needs, and a `capability_required` refusal names it. The doc comments say which roles hold a capability: the robot's `access` section, otherwise the organization's defaults, less what the app locks.
+- **Breaking: `FleetlessErrorCode` loses `role_name_taken`, `role_in_use` and `last_role` and gains `role_cycle`, `role_key_taken` and `confirmation_required`** through `ErrorCode`. The six belong to the role management of the console; only `capability_required` reaches an app through this SDK. An exhaustive `switch` over `ErrorCode` changes its cases.
+- Built against `@fleetless/contracts` 14.0.0.
+
+### Fixed
+
+- **A short outage on the cloud's side no longer ends the realtime channel.** An `auth_error` of `internal_error` (the cloud could not check the credential) used to end the channel for good and was reported to every subscription through `onError`. It is now retried with backoff like a dropped connection, as is a close with code 1011 (the cloud could not re-check the connection's rights and asks for a new authentication). The wait grows from one failed attempt to the next and a retry never comes at once.
+- **A connection the cloud ends with close code 4003 stops and says so.** The code means the credential behind an authenticated connection is no longer valid: the account was removed or blocked, the key was rotated, the session was ended. The channel used to reconnect with that credential first and end only when the cloud refused it. It now reports `token_revoked` to the subscriptions' `onError` and to commands in flight at once and does not reconnect; the next `subscribe` or command opens a new connection with whatever credential the client holds by then.
+
+### Also in 14.0.0
+
+4.6.1 was built against `@fleetless/contracts` 12.0.0; the jump also brought the changes of the 12.1 and 13.x releases. For code using this SDK:
+
+- **`AssetSyncStatus`**, as `assets.syncStatus()` resolves it, gains an optional `file_limit` on a `refused` failure: the per-file limit that was exceeded and the file's size where known. It is exclusive with the store-full `details`; the failure kinds are unchanged.
+- **`FleetlessErrorCode` gains `legal_offer_unavailable`** through `ErrorCode`. It refuses an organization's Terms offer in the console; an app user's session or a server key does not receive it.
+- Doc comments of the datapoint, camera and invoke responses say what a role "may read" or "may use" where they said it "grants". No shape changed.
+
+Nothing else this SDK re-exports or parses at runtime changed.
+
+### Compatibility
+
+- Against a cloud older than this release, `identity.role` and `capabilities.job_history` read `undefined`, and the old `role_id` and `action_history` are no longer typed.
+
 ## [4.6.1] — 2026-11-03
 
 ### Fixed

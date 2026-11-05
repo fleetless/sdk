@@ -25,7 +25,7 @@ const IDENTITY: ClientIdentity = {
   app_user_id: 'u1',
   server_key_id: null,
   app_id: 'app1',
-  role_id: 'role1',
+  role: { key: 'operate', name: 'Operate' },
   email: 'a@b.de',
   two_factor_enabled: false,
 }
@@ -363,6 +363,27 @@ describe('datapoints.subscribe', () => {
     currentSocket().simulateClose()
     await flush()
     expect(FakeWebSocket.instances).toHaveLength(instancesAfterClose)
+  })
+
+  it('a connection the cloud ends with close 4003 reports the error to the subscription and does not reconnect', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = loggedInClient(vi.fn() as unknown as typeof fetch)
+      const onError = vi.fn()
+      client.datapoints.subscribe('robot1', 'battery-percentage', { onEvent: vi.fn(), onError })
+      await vi.advanceTimersByTimeAsync(0)
+      currentSocket().simulateOpen()
+      currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+
+      currentSocket().simulateClose(4003, 'account_unavailable')
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(onError).toHaveBeenCalledTimes(1)
+      expect(onError.mock.calls[0][0]).toMatchObject({ code: 'token_revoked' })
+      expect(FakeWebSocket.instances).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('auth.logout() closes the realtime channel — a session that ended must not keep an authenticated socket streaming', async () => {

@@ -11,7 +11,7 @@ const IDENTITY: ClientIdentity = {
   app_user_id: 'u1',
   server_key_id: null,
   app_id: 'app1',
-  role_id: 'role1',
+  role: { key: 'operate', name: 'Operate' },
   email: 'a@b.de',
   two_factor_enabled: false,
 }

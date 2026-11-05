@@ -91,7 +91,7 @@ export interface JobsApi {
    * durable `seq`, with its actor, its outcome and its `duration_ms`, kept
    * for 90 days. The durable counterpart of `list`.
    *
-   * **Needs the `action_history` capability** on the caller's role, or it
+   * **Needs the `job_history` capability** for the caller's role, or it
    * rejects `capability_required`. An app user sees only runs on the slugs
    * their role grants; a developer session sees the whole robot.
    *
