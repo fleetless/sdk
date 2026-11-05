@@ -70,10 +70,10 @@ export interface JobsApi {
    *
    * At most one entry per slug: the current job there, same as a per-slug
    * read would answer. Not a history endpoint — that is `history` below.
-   * Grant-filtered same as `cameras.list`/`datapoints` — an end user or
-   * server key sees only jobs on slugs their role grants, a developer
-   * session sees every job on the robot. Never empty-vs-missing ambiguity:
-   * a robot doing nothing resolves `[]`.
+   * Grant-filtered same as `cameras.list`/`datapoints` — an end user sees
+   * only jobs on slugs their role grants, a server key every job on slugs its
+   * app does not lock, a developer session every job on the robot. Never
+   * empty-vs-missing ambiguity: a robot doing nothing resolves `[]`.
    *
    * **Ordered newest first by `started_at`, with `job.seq` as the
    * tiebreaker** (`started_at` alone is not a total order — two jobs minted

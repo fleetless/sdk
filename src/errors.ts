@@ -21,12 +21,13 @@ import type { ErrorCode } from '@fleetless/contracts'
  *   to wait forever for that.
  * - `command_outcome_unknown`: worse than a timeout, and told apart from it
  *   on purpose — the connection that carried the command was replaced by a
- *   new one (a reconnect) before any reply arrived. The server, if it
- *   answered at all, answered a socket that no longer exists, so the
- *   command may or may not have run. Never retried automatically — that
- *   could run an action twice — the caller recovers by reading the job
- *   (e.g. `actions.subscribe`), since state is observed by slug regardless
- *   of which connection asked for it.
+ *   new one (a reconnect), or ended because its credential is no longer
+ *   valid, before any reply arrived. The server, if it answered at all,
+ *   answered a socket that no longer exists, so the command may or may not
+ *   have run. Never retried automatically — that could run an action
+ *   twice — the caller recovers by reading the job (e.g.
+ *   `actions.subscribe`), since state is observed by slug regardless of which
+ *   connection asked for it.
  * - `unexpected_response`: the server answered `ok:true` but left out
  *   something the command is defined to always return (e.g. no `job` on a
  *   successful `invoke`) — a contract violation the SDK noticed, not a
