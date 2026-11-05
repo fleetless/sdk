@@ -113,7 +113,7 @@ export interface FleetlessClient {
   readonly assets: AssetsApi
   /** Which robots this caller reaches, and what their role lets them do on each — the calls every screen starts from. */
   readonly robots: RobotsApi
-  /** The app's own data: the records of the collections a developer defined, read and written with the caller's role. */
+  /** The app's own data: the records of the collections a developer defined, read and written with the caller's role, and followed live. */
   readonly collections: CollectionsApi
   /**
    * Closes the realtime channel and stops it from reconnecting. Safe with
@@ -226,9 +226,8 @@ export function createClient(options: FleetlessClientOptions): FleetlessClient {
   const assets = createAssetsApi(http)
   // REST-only, like cameras and jobs: discovery is a read, not a stream.
   const robots = createRobotsApi(http)
-  // REST for the records themselves; the realtime half (`subscribe`) joins in
-  // with the channel once the collections namespace needs it.
-  const collections = createCollectionsApi(http)
+  // The records over REST, and their changes over the shared channel.
+  const collections = createCollectionsApi(http, channel)
 
   // logout() ends the session; an authenticated socket left streaming after
   // that is not a session anymore, it's a leak. Server-key clients never

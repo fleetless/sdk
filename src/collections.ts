@@ -7,8 +7,10 @@ import type {
   CollectionRecordWrite,
   CollectionRevision as WireCollectionRevision,
 } from '@fleetless/contracts'
+import { createCollectionSubscriptions, type CollectionEvent, type CollectionSubscribeOptions } from './collection-subscriptions.js'
 import { FleetlessError } from './errors.js'
 import { pathSegment, type HttpClient } from './http.js'
+import type { RealtimeChannel } from './realtime.js'
 
 /**
  * One record of a collection: its system fields (`id`, `robot_id`, who made
@@ -209,6 +211,27 @@ export interface CollectionsApi {
    * record.
    */
   history(collection: string, id: string, options?: CollectionHistoryOptions): Promise<CollectionHistoryPage>
+  /**
+   * Follows a collection's changes live over the client's realtime channel:
+   * `onEvent` is called for every record that is created, updated, deleted,
+   * or comes into or leaves the view of this subscription (see
+   * `CollectionEvent`). `options.robot` and `options.filter` narrow it; the
+   * caller's rights are checked on every event, not only when subscribing.
+   *
+   * **There is no first snapshot and no acknowledgement.** An accepted
+   * subscription is silent until something changes, and only a refusal is
+   * answered (through `options.onError`). To show the records that exist,
+   * subscribe first and `list` afterwards, so that no change can fall between
+   * the two; then apply the events to what the list returned.
+   *
+   * Opens the channel if it is not open, and subscribes again by itself after
+   * every reconnect — changes made while the connection was down are not
+   * replayed, so `list` again if the connection mattered.
+   *
+   * Returns the function that ends the subscription. It is safe to call more
+   * than once, and after the cloud ended the subscription itself.
+   */
+  subscribe(collection: string, options: CollectionSubscribeOptions, onEvent: (event: CollectionEvent) => void): () => void
 }
 
 /** The routes of the caller's own app; a developer's `/api/apps/:id` routes are not this SDK's. */
@@ -238,7 +261,8 @@ function withQuery(path: string, query: string): string {
   return query ? `${path}?${query}` : path
 }
 
-export function createCollectionsApi(http: HttpClient): CollectionsApi {
+export function createCollectionsApi(http: HttpClient, channel: RealtimeChannel): CollectionsApi {
+  const subscriptions = createCollectionSubscriptions(channel)
   const recordsPath = (collection: string): string => `${COLLECTIONS_PATH}/${pathSegment(collection)}/records`
 
   async function list(collection: string, options: CollectionListOptions = {}): Promise<CollectionPage> {
@@ -294,5 +318,6 @@ export function createCollectionsApi(http: HttpClient): CollectionsApi {
       )
       return { revisions: response.revisions, nextBeforeSeq: response.next_before_seq, purged: response.purged }
     },
+    subscribe: subscriptions.subscribe,
   }
 }
