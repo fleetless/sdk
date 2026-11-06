@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [5.0.0] — 2026-11-06
+
 ### Changed
 
 - **Breaking: `ClientIdentity.role_id` is replaced by `role: { key, name } | null`.** It is what `auth.me()` resolves and what the realtime channel holds after authentication. `key` is the organization role's key, the one `fleetless.yaml` and the organization's role list write; `name` is its display name. `role` is `null` where there is no role to name: for a developer, for a server key, and for an app user whose role has since been deleted, who can still sign in and reaches nothing. Code that read `role_id` reads `role?.key` now.
