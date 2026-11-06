@@ -13,6 +13,10 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
   - Filters: a `filter` of `list` or `subscribe` is plain JSON, and the SDK copies it as JSON, so a reactive proxy (a Vue `reactive`, a Svelte `$state`, a MobX observable) is fine. A value JSON cannot hold (a BigInt, a function, a number that is not finite, a cycle) is refused with `invalid_option` before anything is sent: `list` rejects, `subscribe` throws.
   - New exports: the types `CollectionsApi`, `CollectionListOptions`, `CollectionPage`, `CollectionHistoryOptions`, `CollectionHistoryPage`, `CollectionRecord`, `CollectionRevision`, `CollectionDefinition`, `CollectionDefinitions`, `CollectionEvent`, `CollectionSubscribeOptions`, `CollectionField`, `CollectionBinding` and `CollectionActor`, and the `error.details` schemas of the refusals specific to records, with their types: `recordChangedDetails`, `recordReferencedDetails`, `referenceInvalidDetails` and `requiredMissingDetails`.
 
+### Changed
+
+- Built against `@fleetless/contracts` 15.0.0.
+
 ### Fixed
 
 - **An id, slug or key of `.` or `..` is refused instead of climbing out of its route.** `encodeURIComponent` leaves a value that is only dots alone, and the URL parser `fetch` runs resolves `..` (and `%2E%2E`) as a dot-segment, so `client.collections.get('..', id)` reached a different route with the caller's credentials. Every call that puts an id, slug or key into a path now rejects with `invalid_option` before a request is built. Values that merely contain dots (`a.b`, `...`) are unchanged.
