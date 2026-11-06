@@ -62,6 +62,18 @@ export type { CamerasApi, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession 
 export type { JobSubscription, JobSubscriptionHandlers } from './job-subscriptions.js'
 export type { JobsApi, JobHistoryOptions, JobOrigin } from './jobs.js'
 export type { RobotsApi, McpExposure, McpCapabilities } from './robots.js'
+export type {
+  CollectionsApi,
+  CollectionListOptions,
+  CollectionPage,
+  CollectionHistoryOptions,
+  CollectionHistoryPage,
+  CollectionRecord,
+  CollectionRevision,
+  CollectionDefinition,
+  CollectionDefinitions,
+} from './collections.js'
+export type { CollectionEvent, CollectionSubscribeOptions } from './collection-subscriptions.js'
 export type { SendCommandOptions, InvokeOptions } from './commands.js'
 export type {
   AssetsApi,
@@ -119,6 +131,13 @@ export type {
   // contracts artifact the docs could alias.
   ClientRobotListItem,
   McpRobotDatasheet,
+  // The parts of what `collections.definitions` resolves with and of a
+  // record: one field's definition (a form is drawn from it), how a
+  // collection relates to robots, and who made a change. Named so an app does
+  // not have to write `CollectionDefinition['fields'][string]`.
+  CollectionField,
+  CollectionBinding,
+  CollectionActor,
 } from '@fleetless/contracts'
 
 /**
@@ -155,3 +174,23 @@ export type { ParameterInvalidDetails, ParameterViolation } from '@fleetless/con
 // instead of against bare numbers.
 export { cancelRejectedDetails, CANCEL_RETURN_CODES } from '@fleetless/contracts'
 export type { CancelRejectedDetails } from '@fleetless/contracts'
+
+// `error.details` of the refusals specific to collection records is exactly
+// these shapes — re-exported as runtime schemas, like `parameterInvalidDetails`
+// above, so a caller parses it (`recordChangedDetails.parse(error.details)`)
+// instead of guessing: `record_referenced` (the collections that still point at
+// a record, with counts), `record_changed` (the revision the record is at now),
+// `reference_invalid` (the reference field and why it was refused) and
+// `required_missing` (the required fields left empty).
+export {
+  recordReferencedDetails,
+  recordChangedDetails,
+  referenceInvalidDetails,
+  requiredMissingDetails,
+} from '@fleetless/contracts'
+export type {
+  RecordReferencedDetails,
+  RecordChangedDetails,
+  ReferenceInvalidDetails,
+  RequiredMissingDetails,
+} from '@fleetless/contracts'

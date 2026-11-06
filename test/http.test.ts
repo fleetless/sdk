@@ -470,4 +470,48 @@ describe('pathSegment — traversal defence, asserted against a real server', ()
     // '../../../admin' as a slug value to validate/reject, never lands on a
     // different path the way the un-encoded version did.
   })
+
+  // `encodeURIComponent` leaves `.` and `..` alone, and a value that is only
+  // dots has nothing to escape: `/api/client/collections/../records` reaches
+  // `/api/client/records`. Writing the dots as `%2E` does not help, because the
+  // WHATWG URL parser that `fetch` runs resolves `%2E` and `%2E%2E` as
+  // dot-segments too. A real server (below) shows the first; the parser
+  // assertion shows the second, so nobody "fixes" this with a percent-escape.
+  it('a URL with `%2E%2E` as a segment is resolved like one with `..`, so escaping the dots cannot make them inert', () => {
+    expect(new URL('http://api.test/api/client/collections/%2E%2E/records').pathname).toBe('/api/client/records')
+    expect(new URL('http://api.test/api/client/collections/%2e/records').pathname).toBe('/api/client/collections/records')
+  })
+
+  it.each(['.', '..'])('refuses %j as a segment with invalid_option, before anything can be sent', (value) => {
+    expect(() => pathSegment(value)).toThrow(FleetlessError)
+    expect(() => pathSegment(value)).toThrow(expect.objectContaining({ code: 'invalid_option' }))
+  })
+
+  it.each(['...', '.a', 'a.', 'a.b', '..a', '. ', ' ..', '%2E%2E', '%2e'])('leaves %j a segment of its own', (value) => {
+    expect(pathSegment(value)).toBe(encodeURIComponent(value))
+    // Not a dot-segment once encoded, so the URL parser keeps it where it is.
+    expect(new URL(`http://api.test/a/${pathSegment(value)}/b`).pathname).toBe(`/a/${encodeURIComponent(value)}/b`)
+  })
+
+  it('a value of only dots never reaches a real server, whichever route it was meant for', async () => {
+    const received: string[] = []
+    const server: Server = createServer((req, res) => {
+      received.push(req.url ?? '')
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end('{}')
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const client = new HttpClient({ baseUrl: `http://127.0.0.1:${port}`, fetch: globalThis.fetch, credentials: noCredentials })
+
+    try {
+      // The template is built first, so the refusal comes from `pathSegment` itself, as a rejection of this async function.
+      const attempt = async () => client.request(`/api/client/collections/${pathSegment('..')}/records`, {})
+      await expect(attempt()).rejects.toMatchObject({ code: 'invalid_option' })
+    } finally {
+      server.close()
+    }
+
+    expect(received).toEqual([])
+  })
 })

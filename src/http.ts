@@ -202,12 +202,22 @@ export function mimeFromContentType(headers: Headers): string | null {
  * resolver was hardened against — carried across here rather than left to
  * be found a third time.
  *
- * `encodeURIComponent` turns a `..` segment into `%2E%2E`, which a URL
- * parser treats as an ordinary path character, not a dot-segment — the class
- * becomes impossible rather than merely unlikely for a slug or id that
- * happens to be well-formed today.
+ * `encodeURIComponent` turns a `/` into `%2F`, so a value like `../../admin`
+ * stays one inert segment — the class becomes impossible rather than merely
+ * unlikely for a slug or id that happens to be well-formed today.
+ *
+ * **It leaves a value that is only dots alone.** `.` and `..` have nothing to
+ * escape, and writing the dots as `%2E` does not help: the URL parser `fetch`
+ * runs resolves `%2E` and `%2E%2E` as dot-segments exactly like the plain
+ * ones, so `/collections/%2E%2E/records` arrives as `/records`. No spelling
+ * delivers such a value to the server as a segment, and none can be an id,
+ * slug or key, so it is refused here — as `invalid_option`, before any
+ * request is built — instead of sent.
  */
 export function pathSegment(value: string): string {
+  if (value === '.' || value === '..') {
+    throw new FleetlessError('invalid_option', `'${value}' cannot be used as an id, slug or key: as a path segment it would climb out of its route.`)
+  }
   return encodeURIComponent(value)
 }
 

@@ -47,9 +47,17 @@ import type { ErrorCode } from '@fleetless/contracts'
  *   built with a `serverKey` — `register`, `login`, `logout`, the password
  *   and invitation calls, both OIDC calls, the two MCP decisions and the two
  *   grant calls. Those threw a bare `Error` before, which a caller could only
- *   catch by message. All of them are refused
- *   before any request is sent — as a rejection, since every one of those
- *   methods is `async`. A client-side mistake to fix, not something a
+ *   catch by message. **A fifth:** an id, slug or key that is only dots (`.`
+ *   or `..`) in any call that puts one into a path. It cannot name anything,
+ *   and as a path segment it would climb out of its route; no spelling of it
+ *   survives the URL parser. **A sixth:** a `collections.list` or
+ *   `collections.subscribe` `filter` that is not plain JSON (a BigInt, a
+ *   function, a number that is not finite, a cycle). **A seventh:** a
+ *   `collections.subscribe` whose frame, with its filter, is larger than the
+ *   16,384 bytes the cloud takes on its realtime socket; the cloud would close
+ *   the connection for it, and again after every reconnect. All of them are
+ *   refused before any request is sent — as a rejection, since those methods
+ *   are `async`; `subscribe` is not, so it throws. A client-side mistake to fix, not something a
  *   server response could ever produce, which is why this code belongs here
  *   and not in `@fleetless/contracts`' `ERROR_CODES`.
  * - `untrusted_absolute_url`: the SDK refused to fetch an absolute URL

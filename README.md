@@ -35,6 +35,9 @@ Fleetless is in closed beta. The waiting list is at
 - **Show cameras**: a snapshot that is always there, or live video over
   WebRTC that starts with the first viewer and stops with the last.
 - **Follow jobs**, sync assets, and render the robot's URDF with its meshes.
+- **Keep your app's own data** in collections a developer defines in the
+  console: records you list, search, write and follow live, under the same
+  roles as everything else.
 - **Sign your users in** — registration, verification, invitations, password
   reset, single sign-on and MCP consent — from screens that are entirely
   yours. Fleetless renders no page for an app user.
@@ -100,6 +103,54 @@ const { password, emailCode, twoFactor } = await client.auth.signInMethods()
 // treat that as a failed read and offer no two-factor action, never as 'off'.
 // listProviders() separately returns only federated sign-in buttons.
 ```
+
+## 🗂️ Collections
+
+Besides what the robot exposes, an app has data of its own: **collections** a
+developer defines in the console, such as a logbook per robot, a list of
+components with their locations, or one settings record per robot. Each has
+typed fields and says which roles may read, create, update and delete. The
+records are read and written as the signed-in user, or with a server key.
+
+```ts
+import type { CollectionRecord } from '@fleetless/sdk'
+
+// What this caller may read, with the fields and what they may do with each,
+// and the schema version they belong to.
+const { version, collections } = await client.collections.definitions()
+
+// A subscription delivers changes, not a snapshot. Once the cloud has confirmed it,
+// `onReady` is called: list there, and every change after that reaches the callback.
+// After a dropped connection nothing is replayed, but `onReady` is called again.
+// The SDK does not handle what `onReady` returns, so a failing `list` is caught here.
+let records: CollectionRecord[] = []
+const reload = async () => {
+  try {
+    records = (await client.collections.list('logbook', { robot: robotId, sort: ['-created_at'], limit: 20 })).records
+  } catch (error) {
+    console.error('Could not read the logbook', error)
+  }
+}
+const unsubscribe = client.collections.subscribe('logbook', { robot: robotId, onReady: reload }, (change) => {
+  console.log(change.event, change.id, change.record?.display)
+})
+
+// Search and filter run in the cloud.
+await client.collections.list('components', { search: 'quad xtd1', filter: { position_m: { gte: 2 } }, sort: ['position_m'] })
+
+// Write. A `one_per_robot` collection has exactly one record per robot.
+await client.collections.create('logbook', { text: 'Replaced the left wheel' }, { robot: robotId })
+const settings = await client.collections.get('robot_settings', { robot: robotId })
+await client.collections.update('robot_settings', settings.id, { max_linear_speed: 0.6 }, { expectedRevision: settings.revision })
+
+unsubscribe()
+```
+
+An update that names `expectedRevision` is refused with `record_changed` when
+somebody saved first, and `recordChangedDetails.parse(error.details)` tells you
+the revision the record is at now. The other refusals specific to records keep
+their own codes too: `required_missing`, `reference_invalid` and
+`record_referenced`.
 
 ## 📚 Documentation
 
