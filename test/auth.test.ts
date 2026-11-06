@@ -235,14 +235,14 @@ describe('auth — login, logout and the session', () => {
   })
 
   it('me() hands the role back untouched: its key and its display name', async () => {
-    const withRole: ClientIdentity = { ...IDENTITY, role: { key: 'wartung', name: 'Wartung & Service' } }
+    const withRole: ClientIdentity = { ...IDENTITY, role: { key: 'maintenance', name: 'Maintenance' } }
     const local = await start(always(200, withRole))
     const tokenStore = new InMemoryTokenStore()
     tokenStore.save(SESSION)
 
     const identity = await sessionClient(local.url, tokenStore).auth.me()
 
-    expect(identity.role).toEqual({ key: 'wartung', name: 'Wartung & Service' })
+    expect(identity.role).toEqual({ key: 'maintenance', name: 'Maintenance' })
     expect(identity).toEqual(withRole)
   })
 
