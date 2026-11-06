@@ -122,9 +122,14 @@ const { version, collections } = await client.collections.definitions()
 // A subscription delivers changes, not a snapshot. Once the cloud has confirmed it,
 // `onReady` is called: list there, and every change after that reaches the callback.
 // After a dropped connection nothing is replayed, but `onReady` is called again.
+// The SDK does not handle what `onReady` returns, so a failing `list` is caught here.
 let records: CollectionRecord[] = []
 const reload = async () => {
-  records = (await client.collections.list('logbook', { robot: robotId, sort: ['-created_at'], limit: 20 })).records
+  try {
+    records = (await client.collections.list('logbook', { robot: robotId, sort: ['-created_at'], limit: 20 })).records
+  } catch (error) {
+    console.error('Could not read the logbook', error)
+  }
 }
 const unsubscribe = client.collections.subscribe('logbook', { robot: robotId, onReady: reload }, (change) => {
   console.log(change.event, change.id, change.record?.display)
