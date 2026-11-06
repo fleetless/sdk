@@ -20,6 +20,14 @@ export interface WebSocketLike {
 /** The `OPEN` value of `WebSocket.readyState`, fixed by the standard rather than configurable here. */
 const WS_OPEN = 1
 
+/**
+ * The close code of a connection whose credential is no longer valid — an
+ * account that is gone or blocked, a key that was rotated, a session that was
+ * ended. Reconnecting with that credential cannot work, so unlike every other
+ * close it ends the channel instead of retrying.
+ */
+const CLOSE_CREDENTIAL_REVOKED = 4003
+
 export interface RealtimeChannelOptions {
   url: string
   WebSocket: (new (url: string) => WebSocketLike) | undefined
@@ -39,8 +47,8 @@ type Unlisten = () => void
 
 /**
  * One physical WebSocket, shared by every subscription a client makes.
- * Frames route to listeners by their `type` discriminant — `datapoints.subscribe`
- * is the only consumer today, but a future `actions.subscribe`/`presence.subscribe`
+ * Frames route to listeners by their `type` discriminant — the slug
+ * subscriptions are the consumers today, but a future kind of subscription
  * registers its own frame types on the same channel without any change here.
  *
  * Handles the handshake: connect, send `{type:'auth', token}`, wait for
@@ -48,6 +56,13 @@ type Unlisten = () => void
  * unexpected close and re-authenticates before re-announcing readiness —
  * `onReady` listeners fire again after every successful reconnect, which is
  * what makes resubscribe-after-reconnect automatic.
+ *
+ * **What stops it.** A refused credential does (`#handleAuthError`), and so
+ * does a close with code 4003 on a connection that had authenticated. A cloud
+ * that could not *check* does not: an `auth_error` of `internal_error`, and a
+ * close with 1011 after a failed re-check of the connection's rights, are
+ * retried with backoff like any dropped connection, so a short outage on the
+ * cloud's side never ends a channel for good.
  */
 export class RealtimeChannel {
   readonly #options: RealtimeChannelOptions
@@ -207,7 +222,7 @@ export class RealtimeChannel {
       socket.send(JSON.stringify(authFrame))
     }
     socket.onmessage = (event) => this.#handleMessage(event.data)
-    socket.onclose = () => this.#handleClose()
+    socket.onclose = (event) => this.#handleClose(event.code, event.reason)
     socket.onerror = () => {
       // 'close' follows and does the reconnect bookkeeping.
     }
@@ -260,6 +275,15 @@ export class RealtimeChannel {
         return
       }
     }
+    // `internal_error` means the cloud could not check the credential (a store
+    // was down), not that the credential is bad: nothing here will change by
+    // giving up, so it is a dropped connection. Closing the socket is what
+    // schedules the retry (`#handleClose`), once, whether or not the cloud
+    // closes its side too.
+    if (frame.code === 'internal_error') {
+      this.#socket?.close()
+      return
+    }
     this.#failAuth(new FleetlessError(frame.code, frame.message))
   }
 
@@ -271,10 +295,23 @@ export class RealtimeChannel {
     this.#authFailedListeners.forEach((fn) => fn(error))
   }
 
-  #handleClose(): void {
+  #handleClose(code: number, reason: string): void {
+    const wasAuthenticated = this.#authenticated
     this.#authenticated = false
     this.#socket = null
     if (this.#closedByCaller) return
+    // Only on a connection that had authenticated: a 4003 during the handshake
+    // can also mean the cloud could not check (it then sent `internal_error`
+    // first), and the handshake's own answer decides that.
+    if (wasAuthenticated && code === CLOSE_CREDENTIAL_REVOKED) {
+      this.#failAuth(
+        new FleetlessError(
+          'token_revoked',
+          `The cloud ended the connection because its credential is no longer valid${reason ? ` (${reason})` : ''}.`,
+        ),
+      )
+      return
+    }
     this.#scheduleReconnect()
   }
 

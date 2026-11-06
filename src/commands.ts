@@ -144,7 +144,11 @@ interface CommandFrame {
  *    `command_outcome_unknown`, so a caller does not confuse "nothing
  *    happened yet" with "we lost the ability to find out and must check by
  *    other means" — reading the job by slug (`actions.subscribe`) is the
- *    recovery, not a blind retry.
+ *    recovery, not a blind retry. The same goes for a connection the cloud
+ *    ends because its credential is no longer valid: once the frame has been
+ *    sent, the cause says why the answer is lost, not that the command was
+ *    refused. A command still *held* for the connection to authenticate was
+ *    never sent, so it fails with the authentication error itself.
  */
 export function sendCommand(channel: RealtimeChannel, frame: CommandFrame, options: SendCommandOptions = {}): Promise<CommandResult> {
   channel.connect()
@@ -152,6 +156,7 @@ export function sendCommand(channel: RealtimeChannel, frame: CommandFrame, optio
 
   return new Promise<CommandResult>((resolve, reject) => {
     let settled = false
+    let sent = false
     const cleanups: Array<() => void> = []
     const cleanup = () => {
       for (const fn of cleanups) fn()
@@ -203,7 +208,16 @@ export function sendCommand(channel: RealtimeChannel, frame: CommandFrame, optio
 
     cleanups.push(
       channel.onAuthFailed((error) => {
-        settle(() => reject(error))
+        settle(() =>
+          reject(
+            sent
+              ? new FleetlessError(
+                  'command_outcome_unknown',
+                  `${error.message} A reply to '${frame.type}' (request_id=${frame.request_id}) had not arrived by then. The command may or may not have run — read the job by slug (e.g. actions.subscribe) rather than retrying blindly.`,
+                )
+              : error,
+          ),
+        )
       }),
     )
 
@@ -228,12 +242,14 @@ export function sendCommand(channel: RealtimeChannel, frame: CommandFrame, optio
     if (channel.isReady) {
       const epoch = channel.connectionEpoch
       channel.send(frame)
+      sent = true
       watchForDeadConnection(epoch)
     } else {
       const unlistenReady = channel.onReady(() => {
         unlistenReady()
         const epoch = channel.connectionEpoch
         channel.send(frame)
+        sent = true
         watchForDeadConnection(epoch)
       })
       cleanups.push(unlistenReady)

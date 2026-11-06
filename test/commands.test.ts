@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientIdentity } from '@fleetless/contracts'
 import { createRealtimeCommandTransport, resolveLocalWaitMs, sendCommand } from '../src/commands.js'
+import { FleetlessError } from '../src/errors.js'
 import { RealtimeChannel } from '../src/realtime.js'
 import { FakeWebSocket } from './fake-websocket.js'
 
@@ -11,7 +12,7 @@ const IDENTITY: ClientIdentity = {
   app_user_id: 'u1',
   server_key_id: null,
   app_id: 'app1',
-  role_id: 'role1',
+  role: { key: 'operate', name: 'Operate' },
   email: 'a@b.de',
   two_factor_enabled: false,
 }
@@ -226,6 +227,37 @@ describe('sendCommand', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('rejects with command_outcome_unknown, not token_revoked, when the cloud ends the connection (close 4003) after the command was sent', async () => {
+    const channel = newChannel()
+    channel.connect()
+    await authenticate()
+
+    const promise = sendCommand(channel, { type: 'invoke', request_id: 'r1', robot_id: 'robot1', slug: 'dock', params: {} }, { timeoutMs: 60_000 })
+    currentSocket().simulateClose(4003, 'account_unavailable')
+
+    const error = (await promise.catch((caught: unknown) => caught)) as FleetlessError
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect(error.code).toBe('command_outcome_unknown')
+    // The reason the connection ended is still told, and so is what to do about a command that may have run.
+    expect(error.message).toContain('account_unavailable')
+    expect(error.message).toContain('actions.subscribe')
+    // Sent once, and the channel did not reconnect to resend it.
+    expect(FakeWebSocket.instances.flatMap((socket) => socket.sent).filter((frame) => frame.type === 'invoke')).toHaveLength(1)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  it('still rejects with the authentication error itself when the command was never sent', async () => {
+    const channel = newChannel()
+    // Not connected yet: the command waits for the connection to authenticate.
+    const promise = sendCommand(channel, { type: 'invoke', request_id: 'r1', robot_id: 'robot1', slug: 'dock', params: {} }, { timeoutMs: 60_000 })
+    await flush()
+    currentSocket().simulateOpen()
+    currentSocket().simulateMessage({ type: 'auth_error', code: 'unauthorized', message: 'The credential was refused.' })
+
+    await expect(promise).rejects.toMatchObject({ code: 'unauthorized', message: 'The credential was refused.' })
+    expect(FakeWebSocket.instances.flatMap((socket) => socket.sent).filter((frame) => frame.type === 'invoke')).toHaveLength(0)
   })
 
   it('rejects immediately when authentication fails outright, without waiting for the timeout', async () => {

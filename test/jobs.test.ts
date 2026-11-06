@@ -136,7 +136,7 @@ describe('jobs.history', () => {
   })
 
   it('rejects capability_required as a FleetlessError, naming the switch to flip', async () => {
-    const fetchImpl = fakeFetch(async () => errorResponse('capability_required', 'The role lacks action_history.', 403))
+    const fetchImpl = fakeFetch(async () => errorResponse('capability_required', 'The role lacks job_history.', 403))
     await expect(client(fetchImpl as unknown as typeof fetch).history('robot1')).rejects.toMatchObject({ code: 'capability_required' })
   })
 })
