@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [5.1.0] — 2026-11-06
+
 ### Added
 
 - **`client.collections`: an app's own data, over REST and realtime.** A developer defines collections (typed fields, a binding to robots, and which roles may read, create, update and delete) in the console; the app reads and writes their records as the signed-in user or with a server key.
