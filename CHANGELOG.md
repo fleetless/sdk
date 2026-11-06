@@ -22,7 +22,7 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ### Compatibility
 
-- `FleetlessErrorCode` gains `collection_not_found`, `collection_removed`, `record_changed`, `record_referenced`, `reference_invalid`, `required_missing` and `robot_not_attached` through `ErrorCode` (and `confirmation_required`, which an app never receives). An exhaustive `switch` over `ErrorCode` gains the cases.
+- `FleetlessErrorCode` gains `collection_not_found`, `collection_removed`, `record_changed`, `record_referenced`, `reference_invalid`, `required_missing` and `robot_not_attached` through `ErrorCode`. An exhaustive `switch` over `ErrorCode` gains the cases.
 
 ## [5.0.0] — 2026-11-06
 

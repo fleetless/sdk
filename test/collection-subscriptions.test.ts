@@ -474,4 +474,28 @@ describe('collections.subscribe', () => {
 
     expect(onErrorSecond).not.toHaveBeenCalled()
   })
+
+  it('a connection the cloud ends with close 4003 reports token_revoked to every live subscription and does not reconnect', async () => {
+    vi.useFakeTimers()
+    try {
+      const client = loggedInClient()
+      const onErrorA = vi.fn<(error: FleetlessError) => void>()
+      const onErrorB = vi.fn<(error: FleetlessError) => void>()
+      client.collections.subscribe('logbook', { onError: onErrorA }, vi.fn())
+      client.collections.subscribe('components', { onError: onErrorB }, vi.fn())
+      await vi.advanceTimersByTimeAsync(0)
+      currentSocket().simulateOpen()
+      currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+
+      currentSocket().simulateClose(4003, 'account_unavailable')
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      expect(onErrorA).toHaveBeenCalledTimes(1)
+      expect(onErrorA.mock.calls[0]![0]).toMatchObject({ code: 'token_revoked' })
+      expect(onErrorB).toHaveBeenCalledTimes(1)
+      expect(FakeWebSocket.instances).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
