@@ -58,14 +58,36 @@ export interface CollectionSubscribeOptions {
    * Called when the cloud refuses the subscription (`collection_not_found`
    * for a collection that does not exist or that the caller may not read,
    * `forbidden`, `robot_not_attached`, `validation_error` for a filter it
-   * cannot read), and when a running one ends: `collection_removed` after a
-   * publish removed the collection, or `forbidden` / `robot_not_attached`
-   * when a role change or a detached robot no longer allows it. The
-   * subscription is over then and delivers nothing more. Also called, without
-   * ending the subscription, when the channel cannot authenticate at all
-   * (`no_session`, for instance).
+   * cannot read, `internal_error` when it could not check), and when a
+   * running one ends: `collection_removed` after a publish removed the
+   * collection, or `forbidden` / `robot_not_attached` when a role change or a
+   * detached robot no longer allows it. The subscription is over then and
+   * delivers nothing more; subscribe again to follow the collection.
+   *
+   * Also called, without ending the subscription, when the channel cannot
+   * authenticate at all (`no_session`, for instance) and when the cloud ends
+   * the connection because its credential is no longer valid
+   * (`token_revoked`). Nothing reconnects after that, and the subscription
+   * stays registered: if the app opens the channel again (by signing in and
+   * making a new subscription or command), it is sent again and `onResync`
+   * is called.
    */
   onError?(error: FleetlessError): void
+  /**
+   * Called after the subscription was sent again on a new connection, because
+   * the connection dropped and came back. The cloud does not replay what
+   * changed in between, and the connection can be down for longer than a
+   * moment, so records the app already holds may be stale: read them again
+   * with `collections.list`, and apply the events that follow to that result.
+   *
+   * Not called for the first connection (nothing was missed yet), for a
+   * subscription that ended (`unsubscribe`, or `onError` for a refusal), or
+   * when you end the subscription before the call is due. It runs once every
+   * subscription of this client has been sent again, so a read made in it
+   * is made on a live subscription. A subscription the cloud refuses on the
+   * new connection answers with `onError`, as on the first.
+   */
+  onResync?(): void
   /**
    * Called with the schema version now in force when a developer publishes or
    * restores the app's collections. Rights, fields and collections may have
@@ -173,15 +195,24 @@ export function createCollectionSubscriptions(channel: RealtimeChannel): Collect
       }
       counter += 1
 
-      // Whether the cloud has been told on the current connection. A subscribe
-      // cancelled before it was sent has nothing to cancel on the other side.
+      // Whether the cloud has been told on a connection, now or before. A
+      // subscribe cancelled before it was sent has nothing to cancel on the
+      // other side, and one announced before is announced again on a new
+      // connection: that is the moment the app may have missed changes.
       let announced = false
       const stopAnnouncing = channel.onReady(() => {
         // `onReady` on an already-authenticated channel runs from a microtask,
         // so a cancellation in between must win.
         if (!live.has(requestId)) return
+        const again = announced
         announced = true
         channel.send(frame)
+        // After the send, and from a microtask: the ready listeners of the
+        // other subscriptions and commands run first, and a callback that
+        // throws cannot keep them from running.
+        if (again && options.onResync) queueMicrotask(() => {
+          if (live.has(requestId)) options.onResync?.()
+        })
       })
       live.set(requestId, { options, onEvent, stopAnnouncing })
       channel.connect()

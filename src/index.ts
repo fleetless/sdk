@@ -71,6 +71,7 @@ export type {
   CollectionRecord,
   CollectionRevision,
   CollectionDefinition,
+  CollectionDefinitions,
 } from './collections.js'
 export type { CollectionEvent, CollectionSubscribeOptions } from './collection-subscriptions.js'
 export type { SendCommandOptions, InvokeOptions } from './commands.js'

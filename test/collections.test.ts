@@ -54,7 +54,7 @@ function record(overrides: Partial<CollectionRecord> = {}): CollectionRecord {
 }
 
 describe('collections.definitions', () => {
-  it('reads GET /api/client/collections and unwraps `collections`', async () => {
+  it('reads GET /api/client/collections and resolves the schema version with the collections', async () => {
     const body: CollectionDefinitionsResponse = {
       version: 3,
       collections: [
@@ -71,15 +71,20 @@ describe('collections.definitions', () => {
     }
     const local = await start(() => ({ status: 200, body }))
 
-    await expect(keyClient(local).collections.definitions()).resolves.toEqual(body.collections)
+    await expect(keyClient(local).collections.definitions()).resolves.toEqual({ version: 3, collections: body.collections })
     expect(local.requests).toHaveLength(1)
     expect(local.requests[0]).toMatchObject({ method: 'GET', path: '/api/client/collections' })
     expect([...local.requests[0]!.query.keys()]).toEqual([])
   })
 
-  it('resolves an empty list for an app with nothing readable', async () => {
+  it('resolves no collections, and a null version, for an app that has published nothing', async () => {
     const local = await start(() => ({ status: 200, body: { version: null, collections: [] } }))
-    await expect(keyClient(local).collections.definitions()).resolves.toEqual([])
+    await expect(keyClient(local).collections.definitions()).resolves.toEqual({ version: null, collections: [] })
+  })
+
+  it('resolves no collections, with the version, for an app whose roles grant this caller none', async () => {
+    const local = await start(() => ({ status: 200, body: { version: 4, collections: [] } }))
+    await expect(keyClient(local).collections.definitions()).resolves.toEqual({ version: 4, collections: [] })
   })
 })
 

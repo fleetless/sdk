@@ -113,14 +113,22 @@ typed fields and says which roles may read, create, update and delete. The
 records are read and written as the signed-in user, or with a server key.
 
 ```ts
-// What this caller may read, with the fields and what they may do with each.
-const definitions = await client.collections.definitions()
+import type { CollectionRecord } from '@fleetless/sdk'
+
+// What this caller may read, with the fields and what they may do with each,
+// and the schema version they belong to.
+const { version, collections } = await client.collections.definitions()
 
 // Subscribe first, then list: a subscription delivers changes, not a snapshot.
-const unsubscribe = client.collections.subscribe('logbook', { robot: robotId }, (change) => {
+// After a dropped connection nothing is replayed: `onResync` says when to list again.
+let records: CollectionRecord[] = []
+const reload = async () => {
+  records = (await client.collections.list('logbook', { robot: robotId, sort: ['-created_at'], limit: 20 })).records
+}
+const unsubscribe = client.collections.subscribe('logbook', { robot: robotId, onResync: reload }, (change) => {
   console.log(change.event, change.id, change.record?.display)
 })
-const { records, nextCursor } = await client.collections.list('logbook', { robot: robotId, sort: ['-created_at'], limit: 20 })
+await reload()
 
 // Search and filter run in the cloud.
 await client.collections.list('components', { search: 'quad xtd1', filter: { position_m: { gte: 2 } }, sort: ['position_m'] })

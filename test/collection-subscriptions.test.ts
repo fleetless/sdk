@@ -84,6 +84,22 @@ function event(requestId: string, kind: string, extra: Record<string, unknown> =
   return { type: 'collection_event', request_id: requestId, event: kind, id: RECORD_ID, ...extra }
 }
 
+/** Brings a fresh client's first socket up to auth_ok; fake timers must be on. */
+async function connectFirst(): Promise<void> {
+  await vi.advanceTimersByTimeAsync(0)
+  currentSocket().simulateOpen()
+  currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+}
+
+/** Drops the current socket and brings the reconnect up to auth_ok; fake timers must be on. */
+async function reconnect(): Promise<void> {
+  currentSocket().simulateClose()
+  await vi.advanceTimersByTimeAsync(500) // default initial backoff
+  await vi.advanceTimersByTimeAsync(0)
+  currentSocket().simulateOpen()
+  currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+}
+
 /** The whole frame of `collection_subscribe` 'logbook' as the first subscription of a client sends it, in bytes. */
 function frameBytes(filter: Record<string, unknown>): number {
   const frame = { type: 'collection_subscribe', request_id: 'c1', collection: 'logbook', filter }
@@ -350,6 +366,166 @@ describe('collections.subscribe', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('onResync', () => {
+    it('is not called on the first connection, and is called once per reconnect after the frame was sent again', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const framesWhenCalled: number[] = []
+        const onResync = vi.fn(() => {
+          framesWhenCalled.push(subscribeFrames().length)
+        })
+        client.collections.subscribe('logbook', { robot: ROBOT, onResync }, vi.fn())
+
+        await connectFirst()
+        await flush()
+        expect(onResync).not.toHaveBeenCalled()
+
+        await reconnect()
+        await flush()
+        expect(onResync).toHaveBeenCalledTimes(1)
+        // The new socket already holds the subscribe frame, so a `list` made now follows it.
+        expect(framesWhenCalled).toEqual([1])
+
+        await reconnect()
+        await flush()
+        expect(onResync).toHaveBeenCalledTimes(2)
+        expect(FakeWebSocket.instances).toHaveLength(3)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is called with no arguments, once the frames of every subscription of the client were sent again', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const seen: Array<{ collection: unknown; framesOnSocket: number; args: unknown[] }> = []
+        const resyncOf = (collection: string) =>
+          (...args: unknown[]) => {
+            seen.push({ collection, framesOnSocket: subscribeFrames().length, args })
+          }
+        client.collections.subscribe('logbook', { onResync: resyncOf('logbook') }, vi.fn())
+        client.collections.subscribe('components', { onResync: resyncOf('components') }, vi.fn())
+        await connectFirst()
+
+        await reconnect()
+        await flush()
+
+        expect(seen).toEqual([
+          { collection: 'logbook', framesOnSocket: 2, args: [] },
+          { collection: 'components', framesOnSocket: 2, args: [] },
+        ])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is not called for a subscription made on a channel that was already ready', async () => {
+      const client = loggedInClient()
+      const onResync = vi.fn()
+      client.collections.subscribe('components', {}, vi.fn())
+      await authenticate()
+
+      client.collections.subscribe('logbook', { onResync }, vi.fn())
+      await flush()
+
+      expect(subscribeFrames()).toHaveLength(2)
+      expect(onResync).not.toHaveBeenCalled()
+    })
+
+    it('is not called for a subscription that was never sent: the connection dropped before it authenticated', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const onResync = vi.fn()
+        client.collections.subscribe('logbook', { onResync }, vi.fn())
+        await vi.advanceTimersByTimeAsync(0)
+        currentSocket().simulateOpen()
+        // Closed before auth_ok: nothing was announced, so the first announcement is the next one.
+        await reconnect()
+        await flush()
+
+        expect(subscribeFrames()).toHaveLength(1)
+        expect(onResync).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is not called for a subscription the caller ended, nor for one the cloud ended', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const endedByCaller = vi.fn()
+        const endedByCloud = vi.fn()
+        const alive = vi.fn()
+        const unsubscribe = client.collections.subscribe('logbook', { onResync: endedByCaller }, vi.fn())
+        client.collections.subscribe('components', { onResync: endedByCloud, onError: vi.fn() }, vi.fn())
+        client.collections.subscribe('locations', { onResync: alive }, vi.fn())
+        await connectFirst()
+        currentSocket().simulateMessage({ type: 'collection_subscribe_error', request_id: requestIdOf(1), code: 'collection_removed', message: 'gone' })
+        unsubscribe()
+
+        await reconnect()
+        await flush()
+
+        expect(endedByCaller).not.toHaveBeenCalled()
+        expect(endedByCloud).not.toHaveBeenCalled()
+        expect(alive).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is not called when the caller ends the subscription between the reconnect and the call', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const onResync = vi.fn()
+        const unsubscribe = client.collections.subscribe('logbook', { onResync }, vi.fn())
+        await connectFirst()
+
+        currentSocket().simulateClose()
+        await vi.advanceTimersByTimeAsync(500)
+        await vi.advanceTimersByTimeAsync(0)
+        currentSocket().simulateOpen()
+        currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+        unsubscribe() // same tick as the reconnect, before the callback is due
+        await flush()
+
+        expect(onResync).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is called when a connection the cloud ended with 4003 is opened again by a later call, which sends the old subscription again', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const onResync = vi.fn()
+        client.collections.subscribe('logbook', { onResync, onError: vi.fn() }, vi.fn())
+        await connectFirst()
+
+        currentSocket().simulateClose(4003, 'account_unavailable')
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(FakeWebSocket.instances).toHaveLength(1)
+        expect(onResync).not.toHaveBeenCalled()
+
+        // A later subscribe opens the channel again, and the old subscription is announced with it.
+        client.collections.subscribe('components', {}, vi.fn())
+        await connectFirst()
+        await flush()
+
+        expect(subscribeFrames().map((frame) => frame.collection)).toEqual(['logbook', 'components'])
+        expect(onResync).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 
   it('collection_subscribe_error calls onError with the code and stops delivering', async () => {

@@ -53,6 +53,17 @@ export type CollectionRevision = WireCollectionRevision
 export type CollectionDefinition = CollectionDefinitionsResponse['collections'][number]
 
 /**
+ * What `collections.definitions` resolves with: `collections`, the collections
+ * the caller may read (see `CollectionDefinition`), and `version`, the schema
+ * version they belong to, `null` while the app has published none. Compare it
+ * with the version `onSchemaPublished` hands over to tell whether what you hold
+ * is current.
+ *
+ * The wire shape is contracts' `collectionDefinitionsResponse`.
+ */
+export type CollectionDefinitions = CollectionDefinitionsResponse
+
+/**
  * What `collections.list` reads. Every field is optional; the wire names are
  * snake_case or encoded (`filter` is JSON text, `sort` and `expand` are
  * comma-separated) and this SDK spells them the way its other options are
@@ -157,13 +168,15 @@ export interface CollectionsApi {
   /**
    * The collections the caller may read, with their field definitions and
    * what the caller may do with each — what a screen needs to draw a list or
-   * a form without hard-coding the schema. `[]` for an app that has
-   * published none, or whose roles grant this caller none.
+   * a form without hard-coding the schema — and the schema `version` they
+   * belong to. `collections` is `[]` for an app that has published none, or
+   * whose roles grant this caller none.
    *
    * The schema can change under a running app; a realtime subscription's
-   * `onSchemaPublished` says when to read this again.
+   * `onSchemaPublished` says when to read this again, and hands over the
+   * version to compare with.
    */
-  definitions(): Promise<CollectionDefinition[]>
+  definitions(): Promise<CollectionDefinitions>
   /**
    * One page of a collection's records, filtered, searched and sorted by the
    * cloud. In a collection that belongs to robots the caller sees only the
@@ -235,8 +248,9 @@ export interface CollectionsApi {
    * the two; then apply the events to what the list returned.
    *
    * Opens the channel if it is not open, and subscribes again by itself after
-   * every reconnect — changes made while the connection was down are not
-   * replayed, so `list` again if the connection mattered.
+   * every reconnect. Changes made while the connection was down are not
+   * replayed: `options.onResync` is called once the subscription is sent
+   * again, and is the moment to `list` again and replace what the app holds.
    *
    * Returns the function that ends the subscription. It is safe to call more
    * than once, and after the cloud ended the subscription itself.
@@ -289,7 +303,7 @@ export function createCollectionsApi(http: HttpClient, channel: RealtimeChannel)
   return {
     async definitions() {
       const response: CollectionDefinitionsResponse = await http.request(COLLECTIONS_PATH, {})
-      return response.collections
+      return { version: response.version, collections: response.collections }
     },
     list,
     async get(collection: string, idOrBy: string | { robot: string }, options: { expand?: string[] } = {}): Promise<CollectionRecord> {
