@@ -84,6 +84,12 @@ function event(requestId: string, kind: string, extra: Record<string, unknown> =
   return { type: 'collection_event', request_id: requestId, event: kind, id: RECORD_ID, ...extra }
 }
 
+/** The whole frame of `collection_subscribe` 'logbook' as the first subscription of a client sends it, in bytes. */
+function frameBytes(filter: Record<string, unknown>): number {
+  const frame = { type: 'collection_subscribe', request_id: 'c1', collection: 'logbook', filter }
+  return new TextEncoder().encode(JSON.stringify(frame)).length
+}
+
 describe('collections.subscribe', () => {
   it('sends collection_subscribe with robot_id and filter once the channel is ready', async () => {
     const client = loggedInClient()
@@ -161,6 +167,82 @@ describe('collections.subscribe', () => {
     expect(thrown).toBeInstanceOf(FleetlessError)
     expect(thrown).toMatchObject({ code: 'invalid_option' })
     expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+
+  describe('a subscription frame larger than the cloud takes', () => {
+    // The cloud closes the whole realtime socket (code 1009) for a frame above
+    // 16,384 bytes. Sent anyway, the SDK would reconnect, send the same frame
+    // again and be closed again, taking every other subscription of the client
+    // down with it, so such a subscription is refused before it is sent.
+    const LIMIT = 16_384
+
+    /** A filter whose subscribe frame is exactly `bytes` long: `char`, padded with ASCII to the byte. */
+    function filterOfFrameSize(bytes: number, char = 'a'): Record<string, unknown> {
+      const missing = bytes - frameBytes({ note: { eq: '' } })
+      const width = new TextEncoder().encode(char).length
+      const whole = Math.floor(missing / width)
+      return { note: { eq: char.repeat(whole) + 'a'.repeat(missing - whole * width) } }
+    }
+
+    it('sends a frame of exactly 16,384 bytes', async () => {
+      const client = loggedInClient()
+      const filter = filterOfFrameSize(LIMIT)
+      expect(frameBytes(filter)).toBe(LIMIT)
+
+      client.collections.subscribe('logbook', { filter }, vi.fn())
+      await authenticate()
+
+      expect(subscribeFrames()).toHaveLength(1)
+    })
+
+    it('refuses a frame one byte over with invalid_option, before anything is sent and without opening the channel', async () => {
+      const client = loggedInClient()
+      const filter = filterOfFrameSize(LIMIT + 1)
+      expect(frameBytes(filter)).toBe(LIMIT + 1)
+
+      let thrown: unknown
+      try {
+        client.collections.subscribe('logbook', { filter }, vi.fn())
+      } catch (error) {
+        thrown = error
+      }
+      await flush()
+
+      expect(thrown).toBeInstanceOf(FleetlessError)
+      expect(thrown).toMatchObject({ code: 'invalid_option', message: expect.stringContaining('16,384') })
+      expect(FakeWebSocket.instances).toHaveLength(0)
+    })
+
+    it('counts bytes, not characters: three-byte characters that fit as text but not as UTF-8 are refused', async () => {
+      const client = loggedInClient()
+      const filter = filterOfFrameSize(LIMIT + 1, '€')
+      expect(frameBytes(filter)).toBe(LIMIT + 1)
+      expect(JSON.stringify({ type: 'collection_subscribe', request_id: 'c1', collection: 'logbook', filter }).length).toBeLessThan(LIMIT)
+
+      expect(() => client.collections.subscribe('logbook', { filter }, vi.fn())).toThrow(
+        expect.objectContaining({ code: 'invalid_option' }),
+      )
+      expect(FakeWebSocket.instances).toHaveLength(0)
+    })
+
+    it('names the subscription that is refused and leaves the other subscriptions of the client alone', async () => {
+      const client = loggedInClient()
+      const onEvent = vi.fn()
+      client.collections.subscribe('logbook', {}, onEvent)
+      await authenticate()
+      const requestId = requestIdOf(0)
+
+      expect(() => client.collections.subscribe('components', { filter: filterOfFrameSize(LIMIT + 1) }, vi.fn())).toThrow(
+        expect.objectContaining({ code: 'invalid_option' }),
+      )
+      await flush()
+
+      // No second socket, no frame for the refused one, and the first still delivers.
+      expect(FakeWebSocket.instances).toHaveLength(1)
+      expect(subscribeFrames()).toHaveLength(1)
+      currentSocket().simulateMessage(event(requestId, 'created', { record: RECORD }))
+      expect(onEvent).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('sends neither robot_id nor filter when the options carry none', async () => {

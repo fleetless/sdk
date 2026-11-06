@@ -46,6 +46,12 @@ export interface CollectionSubscribeOptions {
    * has to be plain JSON: a value JSON cannot hold (a BigInt, a function, a
    * number that is not finite, a cycle) makes `subscribe` throw
    * `invalid_option` before anything is sent.
+   *
+   * The whole subscription frame, filter included, may be at most 16,384
+   * bytes (UTF-8): the cloud closes the connection for a larger one. A filter
+   * of a few dozen conditions fits; many long values in `in` lists may not.
+   * `subscribe` throws `invalid_option` for a frame over that, before anything
+   * is sent, so narrow the filter or follow the collection by `robot`.
    */
   filter?: Record<string, unknown>
   /**
@@ -72,6 +78,14 @@ export interface CollectionSubscriptions {
   /** See `CollectionsApi.subscribe`. */
   subscribe(collection: string, options: CollectionSubscribeOptions, onEvent: (event: CollectionEvent) => void): () => void
 }
+
+/**
+ * The most the cloud accepts in one frame on the realtime socket; a larger one
+ * closes the whole socket (code 1009) instead of being answered. The same
+ * limit applies to every frame the SDK sends, but only `collection_subscribe`,
+ * carrying a caller's filter, can approach it.
+ */
+const MAX_FRAME_BYTES = 16_384
 
 /** One open subscription: the wire name it goes by and what to tell the caller. */
 interface LiveSubscription {
@@ -140,12 +154,24 @@ export function createCollectionSubscriptions(channel: RealtimeChannel): Collect
       // change what the subscription follows. Made first, so a filter that is
       // refused leaves no request id and no channel behind.
       const filter = options.filter === undefined ? undefined : copyFilter(options.filter)
-      counter += 1
-      const requestId = `c${counter}`
+      const requestId = `c${counter + 1}`
 
       const frame: CollectionSubscribe = { type: 'collection_subscribe', request_id: requestId, collection }
       if (options.robot !== undefined) frame.robot_id = options.robot
       if (filter !== undefined) frame.filter = filter
+
+      // The frame is sent again after every reconnect, so a frame over the
+      // limit would be closed on again and again, and every other subscription
+      // of the client with it. Refused here, before the request id is taken
+      // and before the channel is opened.
+      const bytes = new TextEncoder().encode(JSON.stringify(frame)).length
+      if (bytes > MAX_FRAME_BYTES) {
+        throw new FleetlessError(
+          'invalid_option',
+          `This subscription is ${bytes.toLocaleString('en-US')} bytes on the wire and the cloud takes at most ${MAX_FRAME_BYTES.toLocaleString('en-US')}: narrow the filter (fewer conditions or shorter lists of values) or follow the collection by robot.`,
+        )
+      }
+      counter += 1
 
       // Whether the cloud has been told on the current connection. A subscribe
       // cancelled before it was sent has nothing to cancel on the other side.

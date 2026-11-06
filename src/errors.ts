@@ -52,9 +52,12 @@ import type { ErrorCode } from '@fleetless/contracts'
  *   and as a path segment it would climb out of its route; no spelling of it
  *   survives the URL parser. **A sixth:** a `collections.list` or
  *   `collections.subscribe` `filter` that is not plain JSON (a BigInt, a
- *   function, a number that is not finite, a cycle). All of them are refused before any request is
- *   sent — as a rejection, since those methods are `async`; `subscribe` is
- *   not, so it throws. A client-side mistake to fix, not something a
+ *   function, a number that is not finite, a cycle). **A seventh:** a
+ *   `collections.subscribe` whose frame, with its filter, is larger than the
+ *   16,384 bytes the cloud takes on its realtime socket; the cloud would close
+ *   the connection for it, and again after every reconnect. All of them are
+ *   refused before any request is sent — as a rejection, since those methods
+ *   are `async`; `subscribe` is not, so it throws. A client-side mistake to fix, not something a
  *   server response could ever produce, which is why this code belongs here
  *   and not in `@fleetless/contracts`' `ERROR_CODES`.
  * - `untrusted_absolute_url`: the SDK refused to fetch an absolute URL

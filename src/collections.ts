@@ -242,7 +242,8 @@ export interface CollectionsApi {
    * than once, and after the cloud ended the subscription itself.
    *
    * Throws `invalid_option`, before anything is sent, for a `filter` that is
-   * not plain JSON.
+   * not plain JSON, and for a subscription whose frame, with its filter, is
+   * larger than the 16,384 bytes the cloud takes.
    */
   subscribe(collection: string, options: CollectionSubscribeOptions, onEvent: (event: CollectionEvent) => void): () => void
 }
