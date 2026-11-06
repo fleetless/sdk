@@ -2,6 +2,7 @@
 import type {
   CollectionEvent as WireCollectionEvent,
   CollectionSubscribe,
+  CollectionSubscribed,
   CollectionSubscribeError,
   CollectionUnsubscribe,
   CollectionsSchemaPublished,
@@ -69,25 +70,32 @@ export interface CollectionSubscribeOptions {
    * the connection because its credential is no longer valid
    * (`token_revoked`). Nothing reconnects after that, and the subscription
    * stays registered: if the app opens the channel again (by signing in and
-   * making a new subscription or command), it is sent again and `onResync`
-   * is called.
+   * making a new subscription or command), it is sent again and `onReady`
+   * is called once the cloud has confirmed it.
    */
   onError?(error: FleetlessError): void
   /**
-   * Called after the subscription was sent again on a new connection, because
-   * the connection dropped and came back. The cloud does not replay what
-   * changed in between, and the connection can be down for longer than a
-   * moment, so records the app already holds may be stale: read them again
-   * with `collections.list`, and apply the events that follow to that result.
+   * Called each time the cloud has confirmed the subscription: the first time
+   * it is accepted, and again after every reconnect, once the subscription
+   * was sent again on the new connection and accepted. From that moment on
+   * every change the subscription covers reaches `onEvent`, so this is the
+   * place to read the records that exist: call `collections.list` here and
+   * show its result, then apply the events to it. An event can arrive while
+   * the list is still being read, and may or may not be in its result; a
+   * record's `revision` tells a newer state from an older one, so apply an
+   * event only when it is newer than what the list returned for that `id`.
    *
-   * Not called for the first connection (nothing was missed yet), for a
-   * subscription that ended (`unsubscribe`, or `onError` for a refusal), or
-   * when you end the subscription before the call is due. It runs once every
-   * subscription of this client has been sent again, so a read made in it
-   * is made on a live subscription. A subscription the cloud refuses on the
-   * new connection answers with `onError`, as on the first.
+   * The same code serves the first load and every later one. The cloud does
+   * not replay what changed while the connection was down, so after a
+   * reconnect the records the app holds may be stale: read them again here
+   * and replace them.
+   *
+   * Not called before the cloud has answered, for a subscription it refuses
+   * (that is `onError`), for one that ended (`unsubscribe`, or `onError` for
+   * an ended one), nor when the app ends the subscription before the answer
+   * arrives. A cloud that does not know this answer never calls it.
    */
-  onResync?(): void
+  onReady?(): void
   /**
    * Called with the schema version now in force when a developer publishes or
    * restores the app's collections. Rights, fields and collections may have
@@ -140,6 +148,14 @@ export function createCollectionSubscriptions(channel: RealtimeChannel): Collect
     const change: CollectionEvent = { event: wire.event, id: wire.id }
     if (wire.record !== undefined) change.record = wire.record
     subscription.onEvent(change)
+  })
+
+  // The cloud's answer to an accepted `collection_subscribe`, once per frame it received: the first announcement of a
+  // subscription and every one after a reconnect each get their own. It is sent before any event of the subscription.
+  channel.on('collection_subscribed', (frame) => {
+    const wire = frame as unknown as CollectionSubscribed
+    // Ended meanwhile (unsubscribed, or refused): the answer is for nobody.
+    live.get(wire.request_id)?.options.onReady?.()
   })
 
   channel.on('collection_subscribe_error', (frame) => {
@@ -197,22 +213,15 @@ export function createCollectionSubscriptions(channel: RealtimeChannel): Collect
 
       // Whether the cloud has been told on a connection, now or before. A
       // subscribe cancelled before it was sent has nothing to cancel on the
-      // other side, and one announced before is announced again on a new
-      // connection: that is the moment the app may have missed changes.
+      // other side. The frame goes out again on every new connection, and the
+      // cloud confirms each with `collection_subscribed` (see above).
       let announced = false
       const stopAnnouncing = channel.onReady(() => {
         // `onReady` on an already-authenticated channel runs from a microtask,
         // so a cancellation in between must win.
         if (!live.has(requestId)) return
-        const again = announced
         announced = true
         channel.send(frame)
-        // After the send, and from a microtask: the ready listeners of the
-        // other subscriptions and commands run first, and a callback that
-        // throws cannot keep them from running.
-        if (again && options.onResync) queueMicrotask(() => {
-          if (live.has(requestId)) options.onResync?.()
-        })
       })
       live.set(requestId, { options, onEvent, stopAnnouncing })
       channel.connect()

@@ -368,163 +368,345 @@ describe('collections.subscribe', () => {
     }
   })
 
-  describe('onResync', () => {
-    it('is not called on the first connection, and is called once per reconnect after the frame was sent again', async () => {
+  describe('onReady', () => {
+    /** What the cloud answers to the nth `collection_subscribe` of the current socket once it has registered it. */
+    function confirm(index: number, socket: FakeWebSocket = currentSocket()): void {
+      socket.simulateMessage({ type: 'collection_subscribed', request_id: requestIdOf(index, socket) })
+    }
+
+    it('is called when the cloud confirms the subscription, not when the frame is sent, and again after every reconnect that is confirmed', async () => {
       vi.useFakeTimers()
       try {
         const client = loggedInClient()
         const framesWhenCalled: number[] = []
-        const onResync = vi.fn(() => {
+        const onReady = vi.fn(() => {
           framesWhenCalled.push(subscribeFrames().length)
         })
-        client.collections.subscribe('logbook', { robot: ROBOT, onResync }, vi.fn())
+        client.collections.subscribe('logbook', { robot: ROBOT, onReady }, vi.fn())
 
         await connectFirst()
         await flush()
-        expect(onResync).not.toHaveBeenCalled()
+        // Sent, not yet confirmed: the cloud may still be judging it.
+        expect(subscribeFrames()).toHaveLength(1)
+        expect(onReady).not.toHaveBeenCalled()
 
-        await reconnect()
-        await flush()
-        expect(onResync).toHaveBeenCalledTimes(1)
-        // The new socket already holds the subscribe frame, so a `list` made now follows it.
+        confirm(0)
+        expect(onReady).toHaveBeenCalledTimes(1)
         expect(framesWhenCalled).toEqual([1])
 
         await reconnect()
         await flush()
-        expect(onResync).toHaveBeenCalledTimes(2)
-        expect(FakeWebSocket.instances).toHaveLength(3)
+        expect(subscribeFrames()).toHaveLength(1) // on the new socket
+        expect(onReady).toHaveBeenCalledTimes(1) // sent again, not confirmed yet
+        confirm(0)
+        expect(onReady).toHaveBeenCalledTimes(2)
+        expect(FakeWebSocket.instances).toHaveLength(2)
       } finally {
         vi.useRealTimers()
       }
     })
 
-    it('is called with no arguments, once the frames of every subscription of the client were sent again', async () => {
+    it('is called with no arguments, and only for the subscription the cloud confirmed', async () => {
       vi.useFakeTimers()
       try {
         const client = loggedInClient()
-        const seen: Array<{ collection: unknown; framesOnSocket: number; args: unknown[] }> = []
-        const resyncOf = (collection: string) =>
+        const seen: Array<{ collection: string; args: unknown[] }> = []
+        const readyOf = (collection: string) =>
           (...args: unknown[]) => {
-            seen.push({ collection, framesOnSocket: subscribeFrames().length, args })
+            seen.push({ collection, args })
           }
-        client.collections.subscribe('logbook', { onResync: resyncOf('logbook') }, vi.fn())
-        client.collections.subscribe('components', { onResync: resyncOf('components') }, vi.fn())
+        client.collections.subscribe('logbook', { onReady: readyOf('logbook') }, vi.fn())
+        client.collections.subscribe('components', { onReady: readyOf('components') }, vi.fn())
         await connectFirst()
 
-        await reconnect()
-        await flush()
-
+        confirm(1)
+        expect(seen).toEqual([{ collection: 'components', args: [] }])
+        confirm(0)
         expect(seen).toEqual([
-          { collection: 'logbook', framesOnSocket: 2, args: [] },
-          { collection: 'components', framesOnSocket: 2, args: [] },
+          { collection: 'components', args: [] },
+          { collection: 'logbook', args: [] },
         ])
       } finally {
         vi.useRealTimers()
       }
     })
 
-    it('is not called for a subscription made on a channel that was already ready', async () => {
+    it('is called before the first event of the subscription, which the cloud sends after the confirmation', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const order: string[] = []
+        client.collections.subscribe('logbook', { onReady: () => order.push('ready') }, (change) => order.push(change.event))
+        await connectFirst()
+
+        confirm(0)
+        currentSocket().simulateMessage(event(requestIdOf(0), 'created', { record: RECORD }))
+        currentSocket().simulateMessage(event(requestIdOf(0), 'updated', { record: RECORD }))
+        expect(order).toEqual(['ready', 'created', 'updated'])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is not called for a subscription made on a channel that was already ready until the cloud confirms that one', async () => {
       const client = loggedInClient()
-      const onResync = vi.fn()
+      const onReady = vi.fn()
       client.collections.subscribe('components', {}, vi.fn())
       await authenticate()
 
-      client.collections.subscribe('logbook', { onResync }, vi.fn())
+      client.collections.subscribe('logbook', { onReady }, vi.fn())
       await flush()
 
       expect(subscribeFrames()).toHaveLength(2)
-      expect(onResync).not.toHaveBeenCalled()
+      expect(onReady).not.toHaveBeenCalled()
+      confirm(1)
+      expect(onReady).toHaveBeenCalledTimes(1)
+    })
+
+    it('is not called when the connection drops before the cloud confirmed, and is called when the next connection does', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const onReady = vi.fn()
+        client.collections.subscribe('logbook', { onReady }, vi.fn())
+        await connectFirst()
+        expect(subscribeFrames()).toHaveLength(1)
+
+        // The socket goes before the cloud answered: that frame was never confirmed.
+        await reconnect()
+        await flush()
+        expect(onReady).not.toHaveBeenCalled()
+        expect(subscribeFrames()).toHaveLength(1)
+
+        confirm(0)
+        expect(onReady).toHaveBeenCalledTimes(1)
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('is not called for a subscription that was never sent: the connection dropped before it authenticated', async () => {
       vi.useFakeTimers()
       try {
         const client = loggedInClient()
-        const onResync = vi.fn()
-        client.collections.subscribe('logbook', { onResync }, vi.fn())
+        const onReady = vi.fn()
+        client.collections.subscribe('logbook', { onReady }, vi.fn())
         await vi.advanceTimersByTimeAsync(0)
         currentSocket().simulateOpen()
-        // Closed before auth_ok: nothing was announced, so the first announcement is the next one.
+        // Closed before auth_ok: nothing was sent, so there is nothing to confirm.
         await reconnect()
         await flush()
 
         expect(subscribeFrames()).toHaveLength(1)
-        expect(onResync).not.toHaveBeenCalled()
+        expect(onReady).not.toHaveBeenCalled()
       } finally {
         vi.useRealTimers()
       }
     })
 
-    it('is not called for a subscription the caller ended, nor for one the cloud ended', async () => {
+    it('is not called for a subscription the caller ended or the cloud ended, nor for a confirmation nobody asked for', async () => {
       vi.useFakeTimers()
       try {
         const client = loggedInClient()
         const endedByCaller = vi.fn()
         const endedByCloud = vi.fn()
         const alive = vi.fn()
-        const unsubscribe = client.collections.subscribe('logbook', { onResync: endedByCaller }, vi.fn())
-        client.collections.subscribe('components', { onResync: endedByCloud, onError: vi.fn() }, vi.fn())
-        client.collections.subscribe('locations', { onResync: alive }, vi.fn())
+        const unsubscribe = client.collections.subscribe('logbook', { onReady: endedByCaller }, vi.fn())
+        client.collections.subscribe('components', { onReady: endedByCloud, onError: vi.fn() }, vi.fn())
+        client.collections.subscribe('locations', { onReady: alive }, vi.fn())
         await connectFirst()
         currentSocket().simulateMessage({ type: 'collection_subscribe_error', request_id: requestIdOf(1), code: 'collection_removed', message: 'gone' })
         unsubscribe()
 
-        await reconnect()
-        await flush()
-
+        // A late or stray confirmation, for all three and for an id that was never used.
+        confirm(0)
+        confirm(1)
+        currentSocket().simulateMessage({ type: 'collection_subscribed', request_id: 'never-sent' })
         expect(endedByCaller).not.toHaveBeenCalled()
         expect(endedByCloud).not.toHaveBeenCalled()
-        expect(alive).toHaveBeenCalledTimes(1)
-      } finally {
-        vi.useRealTimers()
-      }
-    })
+        expect(alive).not.toHaveBeenCalled()
 
-    it('is not called when the caller ends the subscription between the reconnect and the call', async () => {
-      vi.useFakeTimers()
-      try {
-        const client = loggedInClient()
-        const onResync = vi.fn()
-        const unsubscribe = client.collections.subscribe('logbook', { onResync }, vi.fn())
-        await connectFirst()
-
-        currentSocket().simulateClose()
-        await vi.advanceTimersByTimeAsync(500)
-        await vi.advanceTimersByTimeAsync(0)
-        currentSocket().simulateOpen()
-        currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
-        unsubscribe() // same tick as the reconnect, before the callback is due
+        await reconnect()
         await flush()
-
-        expect(onResync).not.toHaveBeenCalled()
+        confirm(0) // only the subscription that is alive is sent again: it is the first frame of the new socket
+        expect(alive).toHaveBeenCalledTimes(1)
+        expect(endedByCaller).not.toHaveBeenCalled()
+        expect(endedByCloud).not.toHaveBeenCalled()
       } finally {
         vi.useRealTimers()
       }
     })
 
-    it('is called when a connection the cloud ended with 4003 is opened again by a later call, which sends the old subscription again', async () => {
+    it('is not called when the caller ends the subscription before the confirmation arrives', async () => {
       vi.useFakeTimers()
       try {
         const client = loggedInClient()
-        const onResync = vi.fn()
-        client.collections.subscribe('logbook', { onResync, onError: vi.fn() }, vi.fn())
+        const onReady = vi.fn()
+        const unsubscribe = client.collections.subscribe('logbook', { onReady }, vi.fn())
         await connectFirst()
+        const requestId = requestIdOf(0)
+
+        unsubscribe() // the cloud is still judging the subscribe
+        currentSocket().simulateMessage({ type: 'collection_subscribed', request_id: requestId })
+
+        expect(onReady).not.toHaveBeenCalled()
+        // The unsubscribe went out, so the cloud drops it when it gets to it.
+        expect(currentSocket().sent.at(-1)).toEqual({ type: 'collection_unsubscribe', request_id: requestId })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is not called for a subscription the cloud refuses', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const onReady = vi.fn()
+        const onError = vi.fn<(error: FleetlessError) => void>()
+        client.collections.subscribe('nope', { onReady, onError }, vi.fn())
+        await connectFirst()
+        currentSocket().simulateMessage({ type: 'collection_subscribe_error', request_id: requestIdOf(0), code: 'collection_not_found', message: 'no such collection' })
+
+        expect(onError).toHaveBeenCalledTimes(1)
+        expect(onReady).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('is called when a connection the cloud ended with 4003 is opened again by a later call and the cloud confirms the old subscription', async () => {
+      vi.useFakeTimers()
+      try {
+        const client = loggedInClient()
+        const onReady = vi.fn()
+        client.collections.subscribe('logbook', { onReady, onError: vi.fn() }, vi.fn())
+        await connectFirst()
+        confirm(0)
+        expect(onReady).toHaveBeenCalledTimes(1)
 
         currentSocket().simulateClose(4003, 'account_unavailable')
         await vi.advanceTimersByTimeAsync(60_000)
         expect(FakeWebSocket.instances).toHaveLength(1)
-        expect(onResync).not.toHaveBeenCalled()
 
-        // A later subscribe opens the channel again, and the old subscription is announced with it.
+        // A later subscribe opens the channel again, and the old subscription is sent with it.
         client.collections.subscribe('components', {}, vi.fn())
         await connectFirst()
         await flush()
 
         expect(subscribeFrames().map((frame) => frame.collection)).toEqual(['logbook', 'components'])
-        expect(onResync).toHaveBeenCalledTimes(1)
+        expect(onReady).toHaveBeenCalledTimes(1)
+        confirm(0)
+        expect(onReady).toHaveBeenCalledTimes(2)
       } finally {
         vi.useRealTimers()
       }
+    })
+
+    describe('a reader that lists in it', () => {
+      /** The cloud of these tests: a table of records, and the subscriptions it has registered. */
+      function cloud() {
+        const table: string[] = []
+        const registered = new Set<string>()
+        return {
+          table,
+          registered,
+          /** A record is written: held by the table, and told to every registered subscription of the socket that is up. */
+          write(id: string) {
+            table.push(id)
+            for (const requestId of registered) currentSocket().simulateMessage(event(requestId, 'created', { id, record: { ...RECORD, id } }))
+          },
+          /** The cloud has judged the nth subscribe frame of the current socket: registered, then confirmed. */
+          register(index: number) {
+            const requestId = requestIdOf(index)
+            registered.add(requestId)
+            currentSocket().simulateMessage({ type: 'collection_subscribed', request_id: requestId })
+          },
+          /** What a `list` answers: the table as it is when the read happens. */
+          async list(): Promise<string[]> {
+            await Promise.resolve()
+            return [...table]
+          },
+        }
+      }
+
+      it('misses nothing: what was written before the cloud registered the subscription is in the list, everything after arrives as an event', async () => {
+        vi.useFakeTimers()
+        try {
+          const remote = cloud()
+          const client = loggedInClient()
+          const known = new Set<string>()
+          const naive = new Set<string>()
+          const ready = vi.fn(async () => {
+            for (const id of await remote.list()) known.add(id)
+          })
+          const onEvent = (change: CollectionEvent) => {
+            known.add(change.id)
+            naive.add(change.id)
+          }
+
+          remote.write('r1')
+          client.collections.subscribe('logbook', { onReady: ready }, onEvent)
+          // The reader that lists as soon as it has subscribed, instead of waiting for onReady: the usual shape of the gap.
+          void remote.list().then((rows) => rows.forEach((id) => naive.add(id)))
+          await connectFirst()
+          await vi.advanceTimersByTimeAsync(0)
+
+          // The frame is on the socket, the cloud is still judging it: this write is neither listed by the naive reader nor delivered.
+          remote.write('r2')
+          remote.register(0)
+          // Written right after the confirmation, while the list is being read: delivered, and perhaps in the list as well.
+          remote.write('r3')
+          await vi.advanceTimersByTimeAsync(0)
+          remote.write('r4')
+
+          expect(ready).toHaveBeenCalledTimes(1)
+          expect([...known].sort()).toEqual(['r1', 'r2', 'r3', 'r4'])
+          expect([...naive].sort()).toEqual(['r1', 'r3', 'r4']) // r2 fell between the naive list and the registration
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('misses nothing after a reconnect either: what was written while the connection was down is in the list the confirmation triggers', async () => {
+        vi.useFakeTimers()
+        try {
+          const remote = cloud()
+          const client = loggedInClient()
+          const known = new Set<string>()
+          client.collections.subscribe(
+            'logbook',
+            {
+              onReady: async () => {
+                known.clear() // replace, not merge: a record deleted meanwhile must go
+                for (const id of await remote.list()) known.add(id)
+              },
+            },
+            (change) => known.add(change.id),
+          )
+          await connectFirst()
+          remote.write('r1')
+          remote.register(0)
+          await vi.advanceTimersByTimeAsync(0)
+          remote.write('r2')
+          expect([...known].sort()).toEqual(['r1', 'r2'])
+
+          currentSocket().simulateClose()
+          remote.registered.clear() // the cloud forgot the socket's subscriptions with it
+          remote.write('r3') // nobody told
+          await vi.advanceTimersByTimeAsync(500)
+          await vi.advanceTimersByTimeAsync(0)
+          currentSocket().simulateOpen()
+          currentSocket().simulateMessage({ type: 'auth_ok', identity: IDENTITY })
+          remote.write('r4') // the frame is on the new socket, not registered yet
+          remote.register(0)
+          await vi.advanceTimersByTimeAsync(0)
+          remote.write('r5')
+
+          expect([...known].sort()).toEqual(['r1', 'r2', 'r3', 'r4', 'r5'])
+        } finally {
+          vi.useRealTimers()
+        }
+      })
     })
   })
 

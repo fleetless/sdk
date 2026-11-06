@@ -241,16 +241,18 @@ export interface CollectionsApi {
    * `CollectionEvent`). `options.robot` and `options.filter` narrow it; the
    * caller's rights are checked on every event, not only when subscribing.
    *
-   * **There is no first snapshot and no acknowledgement.** An accepted
-   * subscription is silent until something changes, and only a refusal is
-   * answered (through `options.onError`). To show the records that exist,
-   * subscribe first and `list` afterwards, so that no change can fall between
-   * the two; then apply the events to what the list returned.
+   * **There is no first snapshot, but the cloud confirms the subscription.**
+   * Once it has accepted and registered it, `options.onReady` is called, and
+   * from then on every change reaches `onEvent`. To show the records that
+   * exist, `list` in `onReady`, so that no change can fall between the list
+   * and the events; then apply the events to what the list returned. A
+   * refusal is answered through `options.onError` and `onReady` is not called.
    *
    * Opens the channel if it is not open, and subscribes again by itself after
    * every reconnect. Changes made while the connection was down are not
-   * replayed: `options.onResync` is called once the subscription is sent
-   * again, and is the moment to `list` again and replace what the app holds.
+   * replayed, but `onReady` is called again once the cloud has confirmed the
+   * subscription on the new connection: the same `list` in the same place
+   * refreshes what the app holds.
    *
    * Returns the function that ends the subscription. It is safe to call more
    * than once, and after the cloud ended the subscription itself.

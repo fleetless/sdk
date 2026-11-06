@@ -119,16 +119,16 @@ import type { CollectionRecord } from '@fleetless/sdk'
 // and the schema version they belong to.
 const { version, collections } = await client.collections.definitions()
 
-// Subscribe first, then list: a subscription delivers changes, not a snapshot.
-// After a dropped connection nothing is replayed: `onResync` says when to list again.
+// A subscription delivers changes, not a snapshot. Once the cloud has confirmed it,
+// `onReady` is called: list there, and every change after that reaches the callback.
+// After a dropped connection nothing is replayed, but `onReady` is called again.
 let records: CollectionRecord[] = []
 const reload = async () => {
   records = (await client.collections.list('logbook', { robot: robotId, sort: ['-created_at'], limit: 20 })).records
 }
-const unsubscribe = client.collections.subscribe('logbook', { robot: robotId, onResync: reload }, (change) => {
+const unsubscribe = client.collections.subscribe('logbook', { robot: robotId, onReady: reload }, (change) => {
   console.log(change.event, change.id, change.record?.display)
 })
-await reload()
 
 // Search and filter run in the cloud.
 await client.collections.list('components', { search: 'quad xtd1', filter: { position_m: { gte: 2 } }, sort: ['position_m'] })
