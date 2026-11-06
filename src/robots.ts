@@ -17,9 +17,11 @@ import { pathSegment, type HttpClient } from './http.js'
  */
 export type McpExposure = WireMcpExposure
 /**
- * The two role capabilities a datasheet names beyond slugs: `action_history`
- * (may `jobs.history` be read) and `assets` (may the URDF and meshes be read).
- * The wire shape is contracts' `mcpCapabilities`.
+ * The two capabilities of a robot as a whole that a datasheet names beyond
+ * slugs: `job_history` (may `jobs.history` be read) and `assets` (may the URDF
+ * and meshes be read). The robot's `access` section decides which roles hold
+ * them, else the organization's defaults, less what the app locks. The wire
+ * shape is contracts' `mcpCapabilities`.
  */
 export type McpCapabilities = WireMcpCapabilities
 
@@ -38,18 +40,19 @@ export interface RobotsApi {
    * The robots this caller reaches, in name order with the id as the tiebreak.
    *
    * An app user reaches the robots their app attaches on which their role
-   * grants at least one slug or capability; a server key reaches every robot
-   * its app attaches. A robot the role grants nothing on is absent rather
-   * than listed empty — reach is a grant, not an attachment — so a new app
-   * whose built-in roles grant nothing yet resolves `[]`, and that is the
-   * console's Roles tab talking, not a broken login.
+   * holds at least one slug or capability once the app's locks are taken off;
+   * a server key reaches every robot its app attaches that the locks leave
+   * something on. A robot nothing is granted on is absent rather than listed
+   * empty — reach is a grant, not an attachment — so an app user whose role
+   * holds nothing resolves `[]`, which is the robots' access rules talking, not
+   * a broken login.
    */
   list(): Promise<ClientRobotListItem[]>
   /**
    * Everything the caller's role lets them do on one robot: every granted
    * datapoint (with `unit` and `decimals`), action, service and publisher
    * (with the parameter JSON Schema under `input_schema`) and camera, plus
-   * the two capabilities that gate whole features, `action_history` and
+   * the two capabilities that gate whole features, `job_history` and
    * `assets`. A robot with nothing published resolves an empty `exposures`
    * list. One the caller does not reach rejects `not_found`, exactly as a
    * robot that does not exist — never `forbidden`, which would say it exists.

@@ -374,7 +374,7 @@ async function checkClientAuth() {
   check('[6c] me() reports kind app_user', me.kind === 'app_user', JSON.stringify(me))
   check('[6d] me() carries this app user\'s own id under app_user_id', typeof me.app_user_id === 'string', JSON.stringify(me))
   check('[6e] me() reports the address that logged in', me.email === email, `${me.email} !== ${email}`)
-  check('[6f] me() is scoped to an app and a role', typeof me.app_id === 'string' && typeof me.role_id === 'string', JSON.stringify(me))
+  check('[6f] me() is scoped to an app and a role', typeof me.app_id === 'string' && typeof me.role?.key === 'string' && typeof me.role?.name === 'string', JSON.stringify(me))
 
   await client.auth.logout()
   // Not a claim that the access token stopped working — it is a stateless JWT

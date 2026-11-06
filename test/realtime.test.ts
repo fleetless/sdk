@@ -263,8 +263,152 @@ describe('RealtimeChannel reconnect', () => {
   })
 })
 
+// What the cloud's closes and refusals mean to a connection that was working:
+// "the cloud could not check, come back" (retry, with backoff) against "this
+// credential is dead" (stop, and say so). Delays are read off the fake timers.
+describe('RealtimeChannel when the cloud could not check or ended the connection', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  function channelWithBackoff(): RealtimeChannel {
+    return new RealtimeChannel({
+      url: 'ws://x/realtime',
+      WebSocket: FakeWebSocket,
+      credentials: stubCredentials('at1'),
+      initialBackoffMs: 100,
+      maxBackoffMs: 1000,
+    })
+  }
+
+  async function authenticate(channel: RealtimeChannel): Promise<void> {
+    channel.connect()
+    await flushFake()
+    currentSocket().simulateOpen()
+    currentSocket().simulateMessage({ type: 'auth_ok', identity: identity() })
+  }
+
+  /** Waits out `ms`, then lets the reconnect's async token read settle. */
+  async function waitOut(ms: number): Promise<void> {
+    await vi.advanceTimersByTimeAsync(ms)
+    await flushFake()
+  }
+
+  it('close 1011 (reauthorization_failed): reconnects after the backoff, not at once, and announces readiness again', async () => {
+    const channel = channelWithBackoff()
+    const ready = vi.fn()
+    const failed = vi.fn()
+    channel.onReady(ready)
+    channel.onAuthFailed(failed)
+    await authenticate(channel)
+
+    currentSocket().simulateClose(1011, 'reauthorization_failed')
+    await flushFake()
+    expect(FakeWebSocket.instances).toHaveLength(1) // nothing happens at once
+    await waitOut(99)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    await waitOut(1)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+
+    currentSocket().simulateOpen()
+    currentSocket().simulateMessage({ type: 'auth_ok', identity: identity() })
+    expect(ready).toHaveBeenCalledTimes(2)
+    expect(failed).not.toHaveBeenCalled()
+  })
+
+  it('auth_error internal_error is not terminal: it retries with a growing backoff until the cloud can check', async () => {
+    const channel = channelWithBackoff()
+    const ready = vi.fn()
+    const failed = vi.fn()
+    channel.onReady(ready)
+    channel.onAuthFailed(failed)
+    channel.connect()
+    await flushFake()
+    currentSocket().simulateOpen()
+    currentSocket().simulateMessage({ type: 'auth_error', code: 'internal_error', message: 'Authentication failed. Reconnect and try again.' })
+    await flushFake()
+    expect(failed).not.toHaveBeenCalled()
+    expect(FakeWebSocket.instances).toHaveLength(1)
+
+    await waitOut(99)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    await waitOut(1)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+
+    // Still failing: the wait doubles, as for any connection that never got through.
+    currentSocket().simulateOpen()
+    currentSocket().simulateMessage({ type: 'auth_error', code: 'internal_error', message: 'Authentication failed. Reconnect and try again.' })
+    await waitOut(199)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    await waitOut(1)
+    expect(FakeWebSocket.instances).toHaveLength(3)
+
+    currentSocket().simulateOpen()
+    currentSocket().simulateMessage({ type: 'auth_ok', identity: identity() })
+    expect(channel.isReady).toBe(true)
+    expect(ready).toHaveBeenCalledTimes(1)
+    expect(failed).not.toHaveBeenCalled()
+  })
+
+  it('a store outage after close 1011 keeps the channel retrying instead of ending it', async () => {
+    const channel = channelWithBackoff()
+    const failed = vi.fn()
+    channel.onAuthFailed(failed)
+    await authenticate(channel)
+
+    currentSocket().simulateClose(1011, 'reauthorization_failed')
+    for (const wait of [100, 200, 400]) {
+      await waitOut(wait)
+      currentSocket().simulateOpen()
+      currentSocket().simulateMessage({ type: 'auth_error', code: 'internal_error', message: 'Authentication failed. Reconnect and try again.' })
+    }
+    expect(FakeWebSocket.instances).toHaveLength(4)
+    expect(failed).not.toHaveBeenCalled()
+
+    await waitOut(800)
+    expect(FakeWebSocket.instances).toHaveLength(5)
+    currentSocket().simulateOpen()
+    currentSocket().simulateMessage({ type: 'auth_ok', identity: identity() })
+    expect(channel.isReady).toBe(true)
+  })
+
+  it('close 4003 (account_unavailable) on a working connection is terminal: it reports an error and never reconnects', async () => {
+    const channel = channelWithBackoff()
+    const failed = vi.fn()
+    channel.onAuthFailed(failed)
+    await authenticate(channel)
+
+    currentSocket().simulateClose(4003, 'account_unavailable')
+    await flushFake()
+
+    expect(failed).toHaveBeenCalledTimes(1)
+    const error = failed.mock.calls[0][0] as FleetlessError
+    expect(error).toBeInstanceOf(FleetlessError)
+    expect(error.code).toBe('token_revoked')
+    expect(error.message).toContain('account_unavailable')
+    expect(channel.isReady).toBe(false)
+
+    await waitOut(60_000)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  it('close 4003 before the connection authenticated is a cloud that could not check, so it still retries', async () => {
+    const channel = channelWithBackoff()
+    const failed = vi.fn()
+    channel.onAuthFailed(failed)
+    channel.connect()
+    await flushFake()
+    currentSocket().simulateOpen()
+
+    currentSocket().simulateClose(4003, 'terms_unavailable')
+    await waitOut(100)
+
+    expect(failed).not.toHaveBeenCalled()
+    expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+})
+
 function identity() {
-  return { kind: 'app_user', developer_id: null, app_user_id: 'u1', server_key_id: null, app_id: 'a1', role_id: 'r1', email: 'a@b.de' }
+  return { kind: 'app_user', developer_id: null, app_user_id: 'u1', server_key_id: null, app_id: 'a1', role: { key: 'operate', name: 'Operate' }, email: 'a@b.de' }
 }
 
 async function flush(): Promise<void> {

@@ -32,7 +32,7 @@ const LIST: ClientRobotListResponse = {
 const SHEET: McpRobotDatasheet = {
   robot_id: 'robot1',
   robot_name: 'alpha',
-  capabilities: { action_history: true, assets: false },
+  capabilities: { job_history: true, assets: false },
   exposures: [
     { slug: 'battery_percentage', kind: 'datapoint', description: null, unit: '%', decimals: 1, input_schema: null },
     { slug: 'drive_to', kind: 'action', description: 'Drive somewhere.', unit: null, decimals: null, input_schema: { type: 'object', properties: {}, additionalProperties: false } },
