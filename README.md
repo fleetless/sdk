@@ -19,8 +19,7 @@ sessions, the reconnects, the subscriptions and the errors, so your code can
 get on with the part that is actually about your robot. Framework-agnostic,
 ESM and CJS, types included.
 
-Fleetless is in closed beta. The waiting list is at
-<https://fleetless.dev/#waiting-list>.
+Fleetless is in open beta: sign up at <https://console.fleetless.dev/signup>.
 
 ## ✨ What you can do with it
 
