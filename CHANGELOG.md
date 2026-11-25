@@ -4,6 +4,14 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+### Added
+
+- **MCP clients by Client ID Metadata Document** (fleetless/fleetless#1218). `ClientMcpInteraction`, what `auth.mcpInteraction()` resolves, carries `client_id_host` (the domain the client's metadata document was fetched from, `null` for a self-registered client), `redirect_uri_host` and `redirect_uri_loopback`: a consent screen shows the domain and where the answer goes beside the unverified name, and warns when the answer goes to the person's own computer. `McpConsentGrant`, what `auth.listMcpGrants()` resolves, carries `client_id_host`. A grant's `client_id` may be the document's HTTPS URL; `auth.revokeMcpGrant()` encodes it as one path segment, as it encodes every id.
+
+### Changed
+
+- Built against `@fleetless/contracts` 18.1.0-next.2 (the release pin follows the contracts release).
+
 ## [5.1.0] — 2026-11-06
 
 ### Added

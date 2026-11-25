@@ -618,6 +618,9 @@ const INTERACTION: ClientMcpInteraction = {
   app_id: '11111111-1111-4111-8111-111111111111',
   client_name: 'Some Client',
   client_name_verified: false,
+  client_id_host: null,
+  redirect_uri_host: '127.0.0.1',
+  redirect_uri_loopback: true,
   scopes: ['fleetless:read'],
   already_granted: false,
   expires_at: '2026-09-06T12:00:00.000Z',
@@ -745,7 +748,7 @@ describe('auth — the MCP interaction trio', () => {
 describe('auth — the app user\'s own MCP grants', () => {
   it('listMcpGrants unwraps the envelope into the array a caller renders', async () => {
     const body: McpConsentGrantListResponse = {
-      grants: [{ client_id: 'c1', client_name: 'Some Client', client_name_verified: false, granted_at: '2026-09-01T10:00:00.000Z' }],
+      grants: [{ client_id: 'c1', client_name: 'Some Client', client_name_verified: false, client_id_host: null, granted_at: '2026-09-01T10:00:00.000Z' }],
     }
     const local = await start(always(200, body))
     const tokenStore = new InMemoryTokenStore()
