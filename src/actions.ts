@@ -81,7 +81,14 @@ export interface ActionsApi {
   cancel(robotId: string, slug: string, jobId?: string | null, options?: SendCommandOptions): Promise<Job | null>
   /**
    * Subscribes to the slug's job: state, feedback, progress and result, as
-   * they happen. State is observed **by slug**, not by job id — this
+   * they happen.
+   *
+   * **A result can be omitted.** The robot sends no frame over 1.5 MiB, so an
+   * action whose result is larger (a map, a point cloud) ends with its state
+   * unchanged — `succeeded` stays `succeeded` — `result: null` and
+   * `job.result_omitted` (`reason: 'too_large'`, the result's `bytes`, the
+   * robot's `limit_bytes`). The robot keeps nothing it did not send; there is
+   * no later way to fetch it. Feedback too large to send arrives as `null`. State is observed **by slug**, not by job id — this
    * is what makes late delivery after a reconnect and a second observer
    * watching the same job both work without special-casing either. Naming a
    * job to `cancel` does not change this: a slug is still a *place a job may

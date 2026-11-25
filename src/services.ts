@@ -18,6 +18,12 @@ export interface ServicesApi {
    * no feedback, no progress, no cancel — so this call already waits for
    * the terminal state internally.
    *
+   * **A response over 1.5 MiB as JSON resolves as `null`.** The robot sends
+   * no larger frame, so the call still succeeds and its job carries
+   * `result_omitted` (`reason: 'too_large'`, the response's `bytes`) beside a
+   * `null` result; the REST answer carries the same field. Expose a smaller
+   * response if the value matters.
+   *
    * `options.patienceMs` bounds the **whole wait** for a service call —
    * unlike an action, where it bounds acceptance only — because a service
    * has no further state to observe once it settles; the platform gives up

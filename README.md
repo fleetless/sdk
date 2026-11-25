@@ -28,7 +28,9 @@ Fleetless is in open beta: sign up at <https://console.fleetless.dev/signup>.
 - **Read datapoints** once, subscribe to them live over one reconnecting
   WebSocket, or query their recorded history.
 - **Run actions and call services** by slug, with feedback, progress and
-  results as they arrive.
+  results as they arrive. A result over 1.5 MiB as JSON is more than the
+  robot sends: the job keeps its state, `result` is `null` and
+  `job.result_omitted` says how large it was.
 - **Publish messages** to a topic, behind a failsafe the robot enforces
   itself the moment your app goes quiet.
 - **Show cameras**: a snapshot that is always there, or live video over
