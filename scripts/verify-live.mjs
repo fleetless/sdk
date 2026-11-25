@@ -39,6 +39,14 @@
 //       it correctly, so a green [5] proves the WIRE is right and cannot by
 //       itself prove the cloud's refcount is — that half is the cloud
 //       repo's own test's job, not this script's to fake.
+//   [6] The client auth API (see `checkClientAuth`).
+//   [7] App collections, against a published schema: `definitions()` says
+//       what the role may do, a record created is listed, a subscription is
+//       confirmed (`onReady`) and then hears a record a second client
+//       creates, and an `observe` user is refused the create its role does
+//       not hold. Needs the app starter's `collections.yaml` published as
+//       the app's schema (collection `logbook`, or name another with
+//       COLLECTION_SLUG).
 //
 // [2] deliberately targets a SERVICE call, not an action invoke. An action's
 // `command_result` comes back the moment the job is *created* (by design —
@@ -85,7 +93,13 @@
 //   ACTION_SLUG=<a long-enough-running action slug, for [1]/[4]'s cancels> \
 //   SERVICE_SLUG=<a deliberately SLOW service slug, for [2]'s disruption> \
 //   CAMERA_SLUG=<a configured camera slug, for [5]'s per-session release> \
+//   COLLECTION_SLUG=<optional: the collection [7] writes; default logbook> \
+//   DEV_TOKEN=<optional, with APP_ID: [7] deletes its records through the
+//              developer route; without them it names what it left> \
 //   node scripts/verify-live.mjs
+//
+// For [7], the app needs a published collections schema: the app starter's
+// `collections.yaml` is the one [7] is written against.
 
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -159,6 +173,21 @@ const secondEmail = env('SECOND_EMAIL', email)
  * without it, and [6] says out loud when it has fallen back.
  */
 const passwordSubjectEmail = env('OBSERVER_EMAIL', email)
+/**
+ * The collection check [7] writes to: the app starter's `logbook` unless
+ * named otherwise. The schema is published before the run; this script
+ * never writes one, so a missing collection is a finding about the
+ * world, named by [7a], not something papered over here.
+ */
+const collectionSlug = env('COLLECTION_SLUG', 'logbook')
+/**
+ * The developer's side of the seeded world, for [7]'s cleanup only. The
+ * starter's schema gives `delete` to `admin`, which no seeded app user
+ * holds, so the records [7] writes are deleted through the developer route.
+ * Optional: without them [7] names the records it left behind.
+ */
+const devToken = process.env.DEV_TOKEN || null
+const appId = process.env.APP_ID || null
 
 // `parameter_invalid`'s `details` shape is pinned in contracts (as of
 // bca81ca) — `{ violations: [{field, rule, message}, ...] }`, at least one,
@@ -252,6 +281,9 @@ const CHECKS = [
   ['[4] cancel(robotId, slug, jobId) addresses that job, never falls back to whatever runs on the slug', checkCancelByJobId],
   ['[5] two live() sessions of the same identity get distinct session_ids and release() addresses only its own', checkPerSessionRelease],
   ['[6] the client auth API: providers are public, login yields an app_user identity, logout ends it locally, the password round-trips, and a reset is acknowledged the same for a known and an unknown address', checkClientAuth],
+  // After [6] on purpose: [6] rotates OBSERVER_EMAIL's password and puts it
+  // back, and [7f] signs in with it. A collections refusal here strands nothing above.
+  ['[7] collections: definitions say what the role may do, a created record is listed, a subscription confirms with onReady and hears another client\'s record, and the observe role is refused a create', checkCollections],
 ]
 
 async function main() {
@@ -364,7 +396,8 @@ async function checkClientAuth() {
     console.log('  INFO  [6n] skipped — the seeded app does not have email_code on, so there is nothing for requestLoginCode to exercise here')
   }
 
-  const client = createClient({ apiUrl, appIdentifier })
+  const trackedFetch = createTrackingFetch(globalThis.fetch)
+  const client = createClient({ apiUrl, appIdentifier, fetch: trackedFetch })
   await client.auth.login(email, password)
   const me = await client.auth.me()
   // The rename is the thing to prove here: `end_user_id` became `app_user_id`
@@ -380,15 +413,18 @@ async function checkClientAuth() {
   // Not a claim that the access token stopped working — it is a stateless JWT
   // and keeps working until it expires, which logout's own doc comment says at
   // length. This asserts the narrower, real thing: the SDK cleared its store,
-  // so the next call carries no bearer and the cloud refuses it.
+  // so `me()` has no session to ask about and refuses with the SDK's own
+  // `no_session` before any request (4.3.0 on, `auth.me()`'s doc comment),
+  // not the cloud's `unauthorized`: the request is never made.
+  const callsBeforeMe = trackedFetch.calls.length
   const afterLogout = await client.auth.me().then(
     (identity) => ({ code: null, identity }),
     (error) => ({ code: error?.code ?? String(error), identity: null }),
   )
   check(
-    '[6g] after logout the client holds nothing, so me() is refused',
-    afterLogout.code === 'unauthorized',
-    `code=${afterLogout.code} identity=${JSON.stringify(afterLogout.identity)}`,
+    '[6g] after logout the client holds nothing, so me() is refused no_session before any request',
+    afterLogout.code === 'no_session' && trackedFetch.calls.length === callsBeforeMe,
+    `code=${afterLogout.code} identity=${JSON.stringify(afterLogout.identity)} requests=${JSON.stringify(trackedFetch.calls.slice(callsBeforeMe))}`,
   )
   client.close()
   anonymous.close()
@@ -653,6 +689,139 @@ async function checkResetAcknowledgement() {
   // repeatable gap is worth somebody looking at.
   console.log(`  INFO  [6l] round-trip times: known ${knownMs} ms, unknown ${unknownMs} ms (not asserted — one sample each)`)
   client.close()
+}
+
+/**
+ * **App collections against a real cloud and a published schema** (SDK 5.x).
+ *
+ * The order is the one a screen follows, which is the one the SDK documents:
+ * `definitions()` first (which buttons to draw), then a write and a `list`,
+ * then `subscribe` and, only after `onReady`, the change that has to arrive.
+ * A change made before `onReady` may legitimately be missed — there is no
+ * first snapshot — so [7e]'s record is written strictly after it, by a
+ * DIFFERENT client: an event about one's own write proves less than one
+ * about somebody else's.
+ *
+ * Every record carries this run's stamp, so nothing an earlier run left in the
+ * collection can answer for this one. They are deleted at the end through the
+ * developer route (see `devToken`); when that cannot happen, the ids are named.
+ */
+async function checkCollections() {
+  const stamp = `verify-live ${new Date().toISOString()}`
+  const writer = createClient({ apiUrl, appIdentifier })
+  const second = createClient({ apiUrl, appIdentifier })
+  const observer = createClient({ apiUrl, appIdentifier })
+  const written = []
+  let unsubscribe = () => {}
+  try {
+    await writer.auth.login(email, password)
+    const definitions = await writer.collections.definitions()
+    const found = definitions.collections.find((d) => d.key === collectionSlug)
+    check(
+      `[7a] definitions() as EMAIL lists the collection '${collectionSlug}', with can.create and a text field`,
+      found !== undefined && found.can?.create === true && found.fields?.text !== undefined,
+      found === undefined
+        ? `schema v${definitions.version ?? 'none'} lists ${JSON.stringify(definitions.collections.map((d) => d.key))} — seed with --collections <app-starter>/collections.yaml`
+        : `can=${JSON.stringify(found.can)} fields=${JSON.stringify(Object.keys(found.fields ?? {}))}`,
+    )
+    if (found === undefined) {
+      console.log(`  INFO  [7b]–[7f] not run: there is no collection '${collectionSlug}' to write to, and [7a] says so`)
+      return
+    }
+
+    const first = await writer.collections.create(collectionSlug, { text: `${stamp} · first` }, { robot: robotId })
+    written.push(first.id)
+    check(
+      '[7b] create() as EMAIL returns the record with the text it was given, on ROBOT_ID',
+      first.values?.text === `${stamp} · first` && first.robot_id === robotId && first.revision === 1,
+      JSON.stringify({ id: first.id, robot_id: first.robot_id, revision: first.revision, values: first.values }),
+    )
+
+    const page = await writer.collections.list(collectionSlug, { robot: robotId, sort: ['-created_at'], limit: 50 })
+    check(
+      '[7c] list() of ROBOT_ID holds the record [7b] created',
+      page.records.some((r) => r.id === first.id),
+      `${page.records.length} record(s), none with id ${first.id}`,
+    )
+
+    let readyCount = 0
+    const events = []
+    const errors = []
+    unsubscribe = writer.collections.subscribe(
+      collectionSlug,
+      {
+        robot: robotId,
+        onReady: () => { readyCount += 1 },
+        onError: (error) => { errors.push(`${error.code}: ${error.message}`) },
+      },
+      (event) => { events.push(event) },
+    )
+    const ready = await waitUntil(() => readyCount > 0 || errors.length > 0, { timeoutMs: 10_000 })
+    check(
+      '[7d] subscribe() as EMAIL is confirmed by the cloud: onReady is called',
+      ready && readyCount > 0,
+      errors.length > 0 ? `onError: ${errors.join(' | ')}` : 'no onReady within 10 s',
+    )
+
+    await second.auth.login(secondEmail, password)
+    if (secondEmail === email) {
+      console.log('  INFO  SECOND_EMAIL not set — [7e]\'s writer is a second session of EMAIL, not another user')
+    }
+    const other = await second.collections.create(collectionSlug, { text: `${stamp} · second` }, { robot: robotId })
+    written.push(other.id)
+    const heard = await waitUntil(() => events.some((e) => e.id === other.id), { timeoutMs: 10_000 })
+    const event = events.find((e) => e.id === other.id)
+    check(
+      '[7e] a record SECOND_EMAIL creates after onReady reaches EMAIL\'s subscription as created, with its values',
+      heard && event?.event === 'created' && event?.record?.values?.text === `${stamp} · second`,
+      heard ? JSON.stringify(event) : `no event for ${other.id} within 10 s; heard ${JSON.stringify(events.map((e) => [e.event, e.id]))}${errors.length ? ` · onError: ${errors.join(' | ')}` : ''}`,
+    )
+
+    await observer.auth.login(passwordSubjectEmail, password)
+    if (passwordSubjectEmail === email) {
+      console.log('  INFO  OBSERVER_EMAIL not set — [7f] signs in as EMAIL, whose role may create, and fails for that reason')
+    }
+    const seen = (await observer.collections.definitions()).collections.find((d) => d.key === collectionSlug)
+    const refused = await observer.collections.create(collectionSlug, { text: `${stamp} · observer` }, { robot: robotId }).then(
+      (record) => { written.push(record.id); return { code: null, record } },
+      (error) => ({ code: error?.code ?? String(error), record: null }),
+    )
+    check(
+      '[7f] as OBSERVER_EMAIL: definitions() lists the collection with can.create false, and create() is refused forbidden',
+      seen !== undefined && seen.can?.create === false && refused.code === 'forbidden',
+      `listed=${seen !== undefined} can=${JSON.stringify(seen?.can)} create → ${refused.code ?? `accepted ${refused.record?.id}`}`,
+    )
+  } finally {
+    unsubscribe()
+    writer.close()
+    second.close()
+    observer.close()
+    await deleteWritten(written)
+  }
+}
+
+/**
+ * Deletes what [7] wrote, through the developer route — the seeded app users
+ * cannot (the starter's `delete` is `admin`'s). Says what it did either way:
+ * a record left in a stamped seed org harms nothing, an unnamed one misleads.
+ */
+async function deleteWritten(ids) {
+  if (ids.length === 0) return
+  if (!devToken || !appId) {
+    console.log(`  INFO  left ${ids.length} record(s) in '${collectionSlug}' (${ids.join(', ')}): DEV_TOKEN and APP_ID are not set, and no seeded app user may delete`)
+    return
+  }
+  const left = []
+  for (const id of ids) {
+    const response = await fetch(`${apiUrl}/api/apps/${appId}/collections/${encodeURIComponent(collectionSlug)}/records/${id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${devToken}` },
+    }).catch((error) => ({ status: `error ${error?.message ?? error}` }))
+    if (response.status !== 204) left.push(`${id} (${response.status})`)
+  }
+  console.log(left.length === 0
+    ? `  INFO  deleted the ${ids.length} record(s) [7] wrote`
+    : `  INFO  could not delete ${left.length} of the ${ids.length} record(s) [7] wrote: ${left.join(', ')}`)
 }
 
 async function checkBusy() {
