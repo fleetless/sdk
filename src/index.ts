@@ -59,6 +59,7 @@ export type { ActionsApi, CancelReturnCode } from './actions.js'
 export type { ServicesApi } from './services.js'
 export type { PublishersApi } from './publishers.js'
 export type { CamerasApi, CameraSnapshot, CameraSnapshotMeta, CameraLiveSession } from './cameras.js'
+export type { CameraLiveEnded } from './live-sessions.js'
 export type { JobSubscription, JobSubscriptionHandlers } from './job-subscriptions.js'
 export type { JobsApi, JobHistoryOptions, JobOrigin } from './jobs.js'
 export type { RobotsApi, McpExposure, McpCapabilities } from './robots.js'
@@ -194,3 +195,10 @@ export type {
   ReferenceInvalidDetails,
   RequiredMissingDetails,
 } from '@fleetless/contracts'
+
+// Why a live camera session ended, and the `details` of a `409
+// camera_offline` from `cameras.live()` (fleetless/fleetless#1126): the robot
+// refused the current attempt to start. Runtime schemas like the ones above,
+// so a caller parses `cameraOfflineDetails.parse(error.details).refusal`.
+export { cameraOfflineDetails, LIVE_START_REFUSALS } from '@fleetless/contracts'
+export type { CameraOfflineDetails, LiveSessionEndReason, LiveStartRefusal } from '@fleetless/contracts'

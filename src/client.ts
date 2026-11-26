@@ -3,6 +3,7 @@ import { createActionsApi, type ActionsApi } from './actions.js'
 import { createAssetsApi, type AssetsApi } from './assets.js'
 import { createServerKeyAuth, createSessionAuth, ServerKeyCredentials, SessionCredentials, type AuthApi } from './auth.js'
 import { createCamerasApi, type CamerasApi } from './cameras.js'
+import { createLiveSessionEndings } from './live-sessions.js'
 import { createCollectionsApi, type CollectionsApi } from './collections.js'
 import { createRealtimeCommandTransport } from './commands.js'
 import { createDatapointsApi, type DatapointsApi } from './datapoints.js'
@@ -219,8 +220,9 @@ export function createClient(options: FleetlessClientOptions): FleetlessClient {
   const actions = createActionsApi(commandTransport, jobSubscriptions)
   const services = createServicesApi(commandTransport, jobSubscriptions)
   const publishers = createPublishersApi(commandTransport)
-  // REST-only, deliberately: no realtime channel involved (see cameras.ts).
-  const cameras = createCamerasApi(http)
+  // REST, plus the channel's `live_session` frames for `onEnded`
+  // (fleetless/fleetless#1126; see cameras.ts and live-sessions.ts).
+  const cameras = createCamerasApi(http, createLiveSessionEndings(channel))
   // REST-only too: a robot-wide job read, not addressed by slug (see jobs.ts).
   const jobs = createJobsApi(http)
   const assets = createAssetsApi(http)

@@ -3,6 +3,7 @@ import type { CameraDescriptor, CameraListResponse, LiveSessionResponse, Snapsho
 import { SNAPSHOT_HEADERS } from '@fleetless/contracts'
 import { FleetlessError } from './errors.js'
 import { mimeFromContentType, pathSegment, type HttpClient } from './http.js'
+import type { CameraLiveEnded, LiveSessionEndings } from './live-sessions.js'
 
 /**
  * The snapshot's metadata alone, without the bytes. All fields
@@ -114,12 +115,33 @@ export interface CameraLiveSession {
    * new, additive signal to design, not a change to this method's contract.
    */
   release(): Promise<void>
+  /**
+   * Calls `handler` once when the cloud ends **this** session, with why:
+   * `{ reason, detail, refusal }`. Returns the function that stops listening.
+   *
+   * The ending that matters most is `start_refused`: the robot refused to
+   * start the camera's live video (a weak link, a source that refuses the
+   * credentials or cannot be reached), so the `Room` would never receive a
+   * track. `detail` is a sentence safe to show, `refusal` the class. Other
+   * endings: `publish_failed` (it stopped after starting), `config_changed`,
+   * `robot_offline`, `revoked`, `released_by_peer` and the rest of
+   * `LiveSessionEndReason`.
+   *
+   * It listens on the client's realtime channel, which `live()` opens and
+   * waits for before taking the hold, so an ending that comes at once is not
+   * missed; one that came before this call is delivered right away. If the
+   * channel cannot connect (no WebSocket in the environment, say), the
+   * handler is never called. Disconnect the `Room` and call `release()` in
+   * the handler as after any other ending.
+   */
+  onEnded(handler: (ended: CameraLiveEnded) => void): () => void
 }
 
 /**
  * A robot's cameras, reachable as `client.cameras`: what exists, the latest
- * still frame, and a live video session. All of it is REST — no realtime
- * channel is involved.
+ * still frame, and a live video session. All of it is REST, except that
+ * `live()` opens the realtime channel so `onEnded` can hear why a session
+ * ended.
  */
 export interface CamerasApi {
   /** Every camera exposed on this robot, as descriptors — the same per-robot list the other kinds use. */
@@ -161,7 +183,12 @@ function headerNumber(headers: Headers, name: string): number | null {
 }
 
 
-export function createCamerasApi(http: HttpClient): CamerasApi {
+/**
+ * `endings` is the client's realtime listener for `live_session`
+ * (`live-sessions.ts`); without it, as in a REST-only test, `onEnded` never
+ * fires.
+ */
+export function createCamerasApi(http: HttpClient, endings?: LiveSessionEndings): CamerasApi {
   return {
     async list(robotId) {
       const response: CameraListResponse = await http.request(`/api/robots/${pathSegment(robotId)}/cameras`, {})
@@ -205,6 +232,12 @@ export function createCamerasApi(http: HttpClient): CamerasApi {
     },
 
     async live(robotId, slug) {
+      // The channel first (fleetless/fleetless#1126): a start the robot
+      // refuses ends the session within one round trip to the robot, and a
+      // `live_session` frame sent before this client's socket authenticated
+      // is lost. Bounded and never rejecting, so a channel that cannot come
+      // up only costs `onEnded`, not the session.
+      if (endings) await endings.ready()
       const response: LiveSessionResponse = await http.request(`/api/robots/${pathSegment(robotId)}/cameras/${pathSegment(slug)}/live`, {
         method: 'POST',
       })
@@ -249,6 +282,7 @@ export function createCamerasApi(http: HttpClient): CamerasApi {
         token: response.token,
         expires_at: response.expires_at,
         release,
+        onEnded: (handler) => (endings ? endings.onEnded(response.session_id, handler) : () => {}),
       }
     },
   }
