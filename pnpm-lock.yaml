@@ -13,8 +13,8 @@ importers:
         version: 4.4.3
     devDependencies:
       '@fleetless/contracts':
-        specifier: 18.2.0
-        version: 18.2.0
+        specifier: 18.3.0-next.3
+        version: 18.3.0-next.3
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -348,8 +348,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@fleetless/contracts@18.2.0':
-    resolution: {integrity: sha512-DD1qB9C6zV1hJRnh0fQLbt+4DR0fJHCoU2LT5K5xTBU4qCG/+I0lnJl/IQkCK1kFJb57dtYJMKc71VC9zIgHeg==}
+  '@fleetless/contracts@18.3.0-next.3':
+    resolution: {integrity: sha512-AQd6MbBpSLWFkLz7a8ViH+p++x53yw4UbimB6r3E5UgiieGXxNSuDhUnbzCbtpAXsfkiYBNXLdQqWok5Ag4/VQ==}
     engines: {node: '>=20'}
 
   '@gerrit0/mini-shiki@3.23.0':
@@ -1164,7 +1164,7 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@fleetless/contracts@18.2.0':
+  '@fleetless/contracts@18.3.0-next.3':
     dependencies:
       zod: 4.6.5
 
