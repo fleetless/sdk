@@ -4,6 +4,8 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ## [Unreleased]
 
+## [5.2.1] — 2026-11-26
+
 ### Changed
 
 - Built against `@fleetless/contracts` 18.2.0. A job's result can now be omitted: the robot sends no frame over 1.5 MiB, so a larger result arrives as `result: null` with `job.result_omitted` (`reason: 'too_large'`, `bytes`, `limit_bytes`), and the job keeps its state (fleetless/fleetless#1222). `services.call` resolves such a response as `null`. The `Job` and `JobRun` types carry the field; no new API.
