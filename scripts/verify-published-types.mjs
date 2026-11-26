@@ -40,8 +40,11 @@ import { INTERNAL_HOST, detectors, hitsIn } from './internal-markers.mjs'
 
 const sdkRoot = fileURLToPath(new URL('..', import.meta.url))
 
+// `maxBuffer`: `execFileSync` refuses output over 1 MiB by default (ENOBUFS),
+// and `tar -xO` of one dist file prints the whole file; `dist/index.cjs`
+// passed 1 MiB with fleetless/fleetless#1126.
 function run(cmd, args, options = {}) {
-  return execFileSync(cmd, args, { cwd: sdkRoot, encoding: 'utf8', stdio: 'pipe', ...options })
+  return execFileSync(cmd, args, { cwd: sdkRoot, encoding: 'utf8', stdio: 'pipe', maxBuffer: 64 * 1024 * 1024, ...options })
 }
 
 // Deliberately NOT an explicit `pnpm build` first. `npm pack` runs the
