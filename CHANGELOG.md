@@ -7,7 +7,7 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 ### Added
 
 - **`CameraLiveSession.onEnded(handler)`: why a live session ended** (fleetless/fleetless#1126). The handler is called once with `{ reason, detail, refusal }` when the cloud ends this session; it returns the function that stops listening. `reason: 'start_refused'` means the robot refused to start the camera's live video (a weak link, a source that refuses the credentials or cannot be reached), so the `Room` would never get a track; `detail` is a sentence safe to show, `refusal` the class (`low_bandwidth`, `source_auth`, `source_unreachable`, `not_startable`, `unknown`). An ending that arrived before `onEnded` was called is delivered at once.
-  - `cameras.live()` now opens the client's realtime channel and waits for it (at most 5 s) before it takes the hold, so an ending that comes at once is not missed. If the channel cannot come up, `live()` still returns the session and `onEnded` stays silent.
+  - `cameras.live()` now opens the client's realtime channel and waits for it (at most 5 s) before it takes the hold, so an ending that comes at once is not missed. If the channel cannot come up, `live()` still returns the session and `onEnded` stays silent. The open channel counts as one of the org's realtime connections and keeps a Node process alive: a script that calls `live()` ends with `client.close()`.
   - New exports: the type `CameraLiveEnded`, the types `LiveSessionEndReason`, `LiveStartRefusal` and `CameraOfflineDetails`, and the runtime `cameraOfflineDetails` and `LIVE_START_REFUSALS`: a `409 camera_offline` from `live()` carries `details.refusal`, and its message is the cloud's sentence, never the robot's words.
 
 ## [5.2.1] — 2026-11-26

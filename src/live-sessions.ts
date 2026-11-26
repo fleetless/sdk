@@ -75,7 +75,7 @@ export function createLiveSessionEndings(
       const waiting = handlers.get(parsed.sessionId)
       if (!waiting) return
       handlers.delete(parsed.sessionId)
-      for (const handler of waiting) handler(parsed.ended)
+      for (const handler of waiting) deliver(handler, parsed.ended)
     })
   }
 
@@ -111,7 +111,7 @@ export function createLiveSessionEndings(
         queueMicrotask(() => {
           if (!active) return
           active = false
-          handler(known)
+          deliver(handler, known)
         })
         return () => {
           active = false
@@ -135,6 +135,22 @@ export function createLiveSessionEndings(
         if (current?.size === 0) handlers.delete(sessionId)
       }
     },
+  }
+}
+
+/**
+ * Calls one handler; a handler that throws neither skips the others waiting
+ * on the same session nor escapes into the socket's message loop. Its error
+ * is reported the way an uncaught one would be, without the stack unwinding
+ * through us.
+ */
+function deliver(handler: (ended: CameraLiveEnded) => void, ended: CameraLiveEnded): void {
+  try {
+    handler(ended)
+  } catch (error) {
+    queueMicrotask(() => {
+      throw error
+    })
   }
 }
 

@@ -162,6 +162,31 @@ describe('CameraLiveSession.onEnded', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
+  it('a handler that throws skips no other handler and does not reach the socket', async () => {
+    const { cameras } = world()
+    const pending = cameras.live('robot1', 'front')
+    await authenticate()
+    const session = await pending
+
+    const boom = new Error('handler bug')
+    const rethrown: Array<() => void> = []
+    const spy = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((callback) => {
+      rethrown.push(callback)
+    })
+    const other = vi.fn()
+    session.onEnded(() => {
+      throw boom
+    })
+    session.onEnded(other)
+    expect(() => socket().simulateMessage(refusal('sess-1'))).not.toThrow()
+    spy.mockRestore()
+
+    expect(other).toHaveBeenCalledTimes(1)
+    // Reported as an uncaught error would be, off the socket's stack.
+    expect(rethrown).toHaveLength(1)
+    expect(() => rethrown[0]!()).toThrow(boom)
+  })
+
   it('takes the hold anyway when the channel does not come up in time', async () => {
     vi.useFakeTimers()
     const { cameras, fetchImpl } = world(() => {}, 50)

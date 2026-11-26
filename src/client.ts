@@ -120,7 +120,7 @@ export interface FleetlessClient {
    * Closes the realtime channel and stops it from reconnecting. Safe with
    * no subscription ever made, and safe to call twice. A Node script (the
    * exact use case `serverKey` is for) that never calls this after
-   * subscribing will not exit on its own — an open WebSocket keeps the
+   * subscribing or after `cameras.live()` will not exit on its own — an open WebSocket keeps the
    * event loop alive. `auth.logout()` calls this automatically; call it
    * yourself if the process should exit without logging out (e.g. a
    * server-side shutdown).
@@ -138,7 +138,8 @@ export interface FleetlessClient {
  * as exactly one.
  *
  * Nothing is fetched here: the realtime channel opens on the first
- * subscription and closes on `close()` or `auth.logout()`.
+ * subscription or the first `cameras.live()`, and closes on `close()` or
+ * `auth.logout()`.
  */
 export function createClient(options: FleetlessClientOptions): FleetlessClient {
   // Counted rather than compared pairwise: three options, three pairs, and
