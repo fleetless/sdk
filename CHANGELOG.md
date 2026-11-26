@@ -10,7 +10,7 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
 
 ### Changed
 
-- Built against `@fleetless/contracts` 18.1.0-next.2 (the release pin follows the contracts release).
+- Built against `@fleetless/contracts` 18.1.0.
 
 ## [5.1.0] — 2026-11-06
 
