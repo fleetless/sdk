@@ -7,7 +7,7 @@ import { createLiveSessionEndings } from '../src/live-sessions.js'
 import { RealtimeChannel } from '../src/realtime.js'
 import { FakeWebSocket } from './fake-websocket.js'
 
-/** fleetless/fleetless#1126, D8: `CameraLiveSession.onEnded` hears why the cloud ended a session. */
+/** fleetless/fleetless#1126: `CameraLiveSession.onEnded` hears why the cloud ended a session. */
 
 const WEAK_LINK = "The robot's link is weak, so live video is paused. Snapshots go on."
 
