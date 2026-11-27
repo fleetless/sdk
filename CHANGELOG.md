@@ -10,6 +10,10 @@ All notable changes to `@fleetless/sdk`. The format follows Keep a Changelog; th
   - `cameras.live()` now opens the client's realtime channel and waits for it (at most 5 s) before it takes the hold, so an ending that comes at once is not missed. If the channel cannot come up, `live()` still returns the session and `onEnded` stays silent. The open channel counts as one of the org's realtime connections and keeps a Node process alive: a script that calls `live()` ends with `client.close()`.
   - New exports: the type `CameraLiveEnded`, the types `LiveSessionEndReason`, `LiveStartRefusal` and `CameraOfflineDetails`, and the runtime `cameraOfflineDetails` and `LIVE_START_REFUSALS`: a `409 camera_offline` from `live()` carries `details.refusal`, and its message is the cloud's sentence, never the robot's words.
 
+### Changed
+
+- Built against `@fleetless/contracts` 19.1.0-next.4. Its major, 19.0.0, changed only the billing wire (`method` on a payment-method change, `pays_invoice` on its options), which the SDK neither sends nor exports; nothing here changes for a caller.
+
 ## [5.2.1] — 2026-11-26
 
 ### Changed
