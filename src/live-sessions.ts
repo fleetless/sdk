@@ -10,8 +10,8 @@ import type { RealtimeChannel } from './realtime.js'
 export interface CameraLiveEnded {
   /**
    * Why it ended. `start_refused`: the robot refused to start the camera's
-   * live video, so the session never carried a picture; `publish_failed`: it
-   * stopped after starting. A newer cloud may send a reason this version does
+   * live video (the first start, or the restart after a bridge reconnect);
+   * `publish_failed`: a running stream stopped. A newer cloud may send a reason this version does
    * not name yet; treat an unknown one as `unknown`.
    */
   reason: LiveSessionEndReason
